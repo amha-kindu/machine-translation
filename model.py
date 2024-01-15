@@ -190,10 +190,10 @@ class ResidualConnection(nn.Module):
         self.norm = LayerNormalization()
         
     def forward(self, x: torch.Tensor, sublayer: nn.Module) -> torch.Tensor:
-        return x + self.dropout(sublayer(self.norm(x)))
+        return self.dropout(self.norm(x + sublayer(x)))
     
     
-class EncoderBlock(nn.Module):
+class Encoder(nn.Module):
     def __init__(self, self_attention_block: MultiHeadAttentionBlock, feed_forward_block: FeedForwardBlock, dropout: float) -> None:
         super().__init__()
         self.self_attention_block = self_attention_block
@@ -202,23 +202,22 @@ class EncoderBlock(nn.Module):
     
     def forward(self, x: torch.Tensor, src_mask: torch.Tensor) -> torch.Tensor:
         x = self.residual_connections[0](x, lambda x: self.self_attention_block(x, x, x, src_mask))
-        x = self.residual_connections[1](x, self.feed_forward_block)
-        return x
+        return self.residual_connections[1](x, self.feed_forward_block)
     
     
-class Encoder(nn.Module):
-    def __init__(self, layers: nn.ModuleList) -> None:
+class EncoderStack(nn.Module):
+    def __init__(self, encoder_blocks: nn.ModuleList) -> None:
         super().__init__()
-        self.layers = layers
+        self.encoder_blocks = encoder_blocks
         self.norm = LayerNormalization()
         
     def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        for layer in self.layers:
-            x = layer(x, mask)
+        for block in self.encoder_blocks:
+            x = block(x, mask)
         return self.norm(x)
     
     
-class DecoderBlock(nn.Module):
+class Decoder(nn.Module):
     def __init__(self, self_attention_block: MultiHeadAttentionBlock, cross_attention_block: MultiHeadAttentionBlock, feed_forward_block: FeedForwardBlock, dropout: float) -> None:
         super().__init__()
         self.self_attention_block = self_attention_block
@@ -235,7 +234,7 @@ class DecoderBlock(nn.Module):
         return x
        
         
-class Decoder(nn.Module):
+class DecoderStack(nn.Module):
     def __init__(self, layers: nn.ModuleList) -> None:
         super().__init__()
         self.layers = layers
@@ -258,7 +257,7 @@ class ProjectionLayer(nn.Module):
     
     
 class MtTransformerModel(nn.Module):
-    def __init__(self, encoder: Encoder, decoder: Decoder, src_embed: TextEmbedding, tgt_embed: TextEmbedding, src_pos: PositionalEncoding, tgt_pos: PositionalEncoding, projection_layer: ProjectionLayer) -> None:
+    def __init__(self, encoder: EncoderStack, decoder: DecoderStack, src_embed: TextEmbedding, tgt_embed: TextEmbedding, src_pos: PositionalEncoding, tgt_pos: PositionalEncoding, projection_layer: ProjectionLayer) -> None:
         super().__init__()
         self.encoder = encoder
         self.decoder = decoder
@@ -301,30 +300,30 @@ class MtTransformerModel(nn.Module):
         src_pos = PositionalEncoding(d_model, src_seq_len, dropout)
         tgt_pos = PositionalEncoding(d_model, tgt_seq_len, dropout)
         
-        # Create n_blocks encoder blocks
-        encoder_blocks = []
+        # Create n_blocks number of encoders
+        encoders = []
         for _ in range(n_blocks):
             self_attention_block = MultiHeadAttentionBlock(d_model, heads, dropout)
             feed_forward_block = FeedForwardBlock(d_model, dff, dropout)
             
-            encoder_blocks.append(
-                EncoderBlock(self_attention_block, feed_forward_block, dropout)
+            encoders.append(
+                Encoder(self_attention_block, feed_forward_block, dropout)
             )
             
-        # Create n_blocks decoder blocks
-        decoder_blocks = []
+        # Create n_blocks number of decoders
+        decoders = []
         for _ in range(n_blocks):
             self_attention_block = MultiHeadAttentionBlock(d_model, heads, dropout)
             cross_attention_block = MultiHeadAttentionBlock(d_model, heads, dropout)
             feed_forward_block = FeedForwardBlock(d_model, dff, dropout)
             
-            decoder_blocks.append(
-                DecoderBlock(self_attention_block, cross_attention_block, feed_forward_block, dropout)
+            decoders.append(
+                Decoder(self_attention_block, cross_attention_block, feed_forward_block, dropout)
             )
             
         # Create the encoder and the decoder
-        encoder = Encoder(encoder_blocks)
-        decoder = Decoder(decoder_blocks)
+        encoder = EncoderStack(encoders)
+        decoder = DecoderStack(decoders)
         
         # Create the projection layer
         projection_layer = ProjectionLayer(d_model, tgt_vocab_size)

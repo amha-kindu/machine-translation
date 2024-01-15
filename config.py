@@ -2,6 +2,12 @@ import torch
 from pathlib import Path
 
 DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+torch.manual_seed(3000)
+if torch.cuda.is_available():
+    DEVICE = torch.device('cuda')
+    torch.cuda.manual_seed_all(3000) 
+else:
+    DEVICE = torch.device('cpu')
 
 def get_config():
     return {
@@ -21,7 +27,7 @@ def get_config():
         "preload": False,
         "tokenizer_folder":"tokenizers",
         "tokenizer_basename": "tokenizer_{0}.json",
-        "experiment_name": "runs/tmodel"
+        "tb_log_dir": "logs/tmodel"
     }
     
 def get_weights_file_path(config: dict, epoch: str):

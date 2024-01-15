@@ -1,8 +1,11 @@
 import json
 import torch
+import random
+import torchmetrics as tm
 import torch.nn as nn
 from tqdm import tqdm
 from tokenizers import Tokenizer
+from inference import MtInferenceEngine, SamplingStrategy
 from model import MtTransformerModel
 from dataset import BilingualDataset
 from tokenizers.models import WordLevel
@@ -75,17 +78,50 @@ def get_model(config: dict, src_vocab_size: int, tgt_vocab_size):
         dropout=config["dropout"],
         dff=config["dff"]
     )
+
+def validate(
+    inference_engine: MtInferenceEngine, val_dataloader: DataLoader, 
+    max_len: int, global_step: int, writer: SummaryWriter, num_examples=2
+):
+    source_texts = []
+    expected = []
+    predicted = []
+    for batch in random.sample(list(val_dataloader), k=num_examples):
+        # Retrieve the data points from the current batch
+        encoder_input = batch["encoder_input"].to(DEVICE)       # (batches, seq_len) 
+        encoder_mask = batch["encoder_mask"].to(DEVICE)         # (bathes, 1, 1, seq_len) 
+        decoder_mask = batch["decoder_mask"].to(DEVICE)         # (bathes, 1, seq_len, seq_len) 
+        
+        # model_output = generate(model, encoder_input, encoder_mask, decoder_mask, src_tokenizer, max_len, device)
+        model_output = inference_engine.translate_raw(encoder_input, encoder_mask, decoder_mask, max_len, SamplingStrategy.GREEDY)
+            
+        source_texts.append(batch["src_text"][0])
+        expected.append(batch["tgt_text"][0])
+        # predicted.append(tgt_tokenizer.decode(model_output.detach().cpu().tolist()))
+        predicted.append(model_output)
+    
+    """
+        Evaluate the model's prediction on various standard metrics
+    """    
+    # Compute the char error rate 
+    metric = tm.CharErrorRate()
+    writer.add_scalar('Validation CER', metric(predicted, expected), global_step)
+    writer.flush()
+
+    # Compute the word error rate
+    metric = tm.WordErrorRate()
+    writer.add_scalar('Validation WER', metric(predicted, expected), global_step)
+    writer.flush()
+
+    # Compute the BLEU metric
+    metric = tm.BLEUScore()
+    writer.add_scalar('Validation BLEU', metric(predicted, expected), global_step)
+    writer.flush()
     
     
-def train_model(config):
-    print(f"Using the DEVICE: {DEVICE}")
-    
-    Path(config["model_folder"]).mkdir(parents=True, exist_ok=True)
-    train_dataloader, val_dataloader, src_tokenizer, tgt_tokenizer = get_dataset(config)
-    model = get_model(config, src_tokenizer.get_vocab_size(), tgt_tokenizer.get_vocab_size()).to(DEVICE)
-    
+def train(model: MtTransformerModel, train_dataloader: DataLoader, val_dataloader: DataLoader, src_tokenizer: Tokenizer, tgt_tokenizer: Tokenizer, config: dict) -> None:
     # Configure Tensorboard
-    writer = SummaryWriter(config["experiment_name"])
+    writer = SummaryWriter(config["tb_log_dir"])
     
     # Create the optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=config["lr"], eps=1e-09)
@@ -100,26 +136,29 @@ def train_model(config):
         initial_epoch = state["epoch"] + 1
         global_step = state["global_step"]
         
+        model.load_state_dict(state["model_state_dict"])
         optimizer.load_state_dict(state["optimizer_state_dict"])
         
     loss_func = nn.CrossEntropyLoss(ignore_index=src_tokenizer.token_to_id('[PAD]'), label_smoothing=0.1).to(DEVICE)
     
     for epoch in range(initial_epoch, config["epochs"]):
-        # Set the module in training mode
-        model.train()
-        
         # Wrap train_dataloader with tqdm to show a progress bar to show
         # how much of the batches have been processed on the current epoch
         batch_iterator = tqdm(train_dataloader, desc=f"Processing epoch {epoch: 02d}", colour="BLUE")
         
         # Iterate through the batches
         for batch in batch_iterator:
+            """
+                Set the transformer module(the model) to training mode
+            """
+            model.train()
+        
             # Retrieve the data points from the current batch
             encoder_input = batch["encoder_input"].to(DEVICE)       # (batches, seq_len) 
             decoder_input = batch["decoder_input"].to(DEVICE)       # (batches, seq_len) 
             encoder_mask = batch["encoder_mask"].to(DEVICE)         # (bathes, 1, 1, seq_len) 
             decoder_mask = batch["decoder_mask"].to(DEVICE)         # (bathes, 1, seq_len, seq_len) 
-            label = batch['label'].to(DEVICE)                       # (batches, seq_len)
+            label: torch.Tensor = batch['label'].to(DEVICE)         # (batches, seq_len)
             
             # Perform the forward pass according to the operations defined in 
             # the transformer model in order to build the computation graph of the model
@@ -151,6 +190,12 @@ def train_model(config):
             # Zero the gradients of the model parameters to prevent gradient accumulation 
             optimizer.zero_grad()
             
+            """
+                Set the transformer module(the model) to evaluation mode and validate the model's performance
+            """
+            infr_engine = MtInferenceEngine(model, src_tokenizer, tgt_tokenizer, DEVICE)
+            validate(infr_engine, val_dataloader, config["seq_len"], global_step, writer)
+            
             global_step += 1
             
         # Save the model at the end of every epoch
@@ -165,4 +210,11 @@ def train_model(config):
 
 if __name__ == "__main__":
     config=get_config()
-    train_model(config)
+    print(f"Training started on `{DEVICE}` device")
+    
+    Path(config["model_folder"]).mkdir(parents=True, exist_ok=True)
+    train_dataloader, val_dataloader, src_tokenizer, tgt_tokenizer = get_dataset(config)
+    
+    model = get_model(config, src_tokenizer.get_vocab_size(), tgt_tokenizer.get_vocab_size()).to(DEVICE)    
+    
+    train(model, train_dataloader, val_dataloader, src_tokenizer, tgt_tokenizer, config)
