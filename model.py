@@ -2,6 +2,8 @@ import math
 import torch
 import torch.nn as nn
 
+from config import DEVICE
+
 
 class TextEmbedding(nn.Module):
     def __init__(self, d_model: int, vocab_size: int) -> None:
@@ -84,9 +86,9 @@ class LayerNormalization(nn.Module):
 class FeedForwardBlock(nn.Module):
     def __init__(self, d_model: int, dff: int, dropout: float) -> None:
         super().__init__()
-        self.linear_1 = nn.Linear(d_model, dff) # W1 and B1
+        self.linear_1 = nn.Linear(d_model, dff).to(DEVICE) # W1 and B1
         self.dropout = nn.Dropout(dropout)
-        self.linear_2 = nn.Linear(dff, d_model) # W2 and B2
+        self.linear_2 = nn.Linear(dff, d_model).to(DEVICE) # W2 and B2
         
     """
         Args:
@@ -110,11 +112,11 @@ class MultiHeadAttentionBlock(nn.Module):
         
         self.d_k = d_model // heads
         
-        self.W_q = nn.Linear(d_model, d_model)
-        self.W_k = nn.Linear(d_model, d_model)
-        self.W_v = nn.Linear(d_model, d_model)
-        
-        self.W_o = nn.Linear(d_model, d_model)
+        self.W_q = nn.Linear(d_model, d_model).to(DEVICE)
+        self.W_k = nn.Linear(d_model, d_model).to(DEVICE)
+        self.W_v = nn.Linear(d_model, d_model).to(DEVICE)
+
+        self.W_o = nn.Linear(d_model, d_model).to(DEVICE)
         self.dropout = nn.Dropout(dropout)
     
     """
