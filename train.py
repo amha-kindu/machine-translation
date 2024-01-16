@@ -1,7 +1,7 @@
 import json
 import torch
 import random
-import torchmetrics as tm
+from torchmetrics.text import BLEUScore, WordErrorRate, CharErrorRate
 import torch.nn as nn
 from tqdm import tqdm
 from tokenizers import Tokenizer
@@ -16,6 +16,8 @@ from config import DEVICE, get_weights_file_path, get_config
 from torch.utils.data import Dataset, DataLoader, random_split
 
 from pathlib import Path
+
+from preprocessor import AmharicPreprocessor, EnglishPreprocessor
 
 def get_all_sentences(dataset: dict, lang: str) -> list[str]:
     for item in dataset:
@@ -48,8 +50,8 @@ def get_dataset(config: dict) -> tuple[DataLoader, DataLoader, Tokenizer, Tokeni
     
     train_raw, val_raw = random_split(dataset, (train_size, val_size))
     
-    train_dataset = BilingualDataset(train_raw, src_tokenizer, tgt_tokenizer, config["src_lang"], config["tgt_lang"], config["seq_len"])
-    val_dataset = BilingualDataset(val_raw, src_tokenizer, tgt_tokenizer, config["src_lang"], config["tgt_lang"], config["seq_len"])
+    train_dataset = BilingualDataset(train_raw, EnglishPreprocessor(src_tokenizer), AmharicPreprocessor(tgt_tokenizer), config["src_lang"], config["tgt_lang"], config["seq_len"])
+    val_dataset = BilingualDataset(val_raw, EnglishPreprocessor(src_tokenizer), AmharicPreprocessor(tgt_tokenizer), config["src_lang"], config["tgt_lang"], config["seq_len"])
     
     max_src_len = 0
     max_tgt_len = 0
@@ -104,17 +106,17 @@ def validate(
         Evaluate the model's prediction on various standard metrics
     """    
     # Compute the char error rate 
-    metric = tm.CharErrorRate()
+    metric = CharErrorRate()
     writer.add_scalar('Validation CER', metric(predicted, expected), global_step)
     writer.flush()
 
     # Compute the word error rate
-    metric = tm.WordErrorRate()
+    metric = WordErrorRate()
     writer.add_scalar('Validation WER', metric(predicted, expected), global_step)
     writer.flush()
 
     # Compute the BLEU metric
-    metric = tm.BLEUScore()
+    metric = BLEUScore()
     writer.add_scalar('Validation BLEU', metric(predicted, expected), global_step)
     writer.flush()
     
@@ -193,7 +195,7 @@ def train(model: MtTransformerModel, train_dataloader: DataLoader, val_dataloade
             """
                 Set the transformer module(the model) to evaluation mode and validate the model's performance
             """
-            infr_engine = MtInferenceEngine(model, src_tokenizer, tgt_tokenizer, DEVICE)
+            infr_engine = MtInferenceEngine(model, EnglishPreprocessor(src_tokenizer), AmharicPreprocessor(tgt_tokenizer), DEVICE)
             validate(infr_engine, val_dataloader, config["seq_len"], global_step, writer)
             
             global_step += 1
