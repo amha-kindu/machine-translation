@@ -1,23 +1,21 @@
 import json
 import torch
 import random
-from torchmetrics.text import BLEUScore, WordErrorRate, CharErrorRate
 import torch.nn as nn
 from tqdm import tqdm
+from pathlib import Path
 from tokenizers import Tokenizer
-from inference import MtInferenceEngine, SamplingStrategy
 from model import MtTransformerModel
 from dataset import BilingualDataset
 from tokenizers.models import WordLevel
 from tokenizers.trainers import WordLevelTrainer
 from tokenizers.pre_tokenizers import Whitespace
 from torch.utils.tensorboard import SummaryWriter
+from inference import MtInferenceEngine, SamplingStrategy
 from config import DEVICE, get_weights_file_path, get_config
 from torch.utils.data import Dataset, DataLoader, random_split
+from torchmetrics.text import BLEUScore, WordErrorRate, CharErrorRate
 
-from pathlib import Path
-
-from preprocessor import AmharicPreprocessor, EnglishPreprocessor
 
 
 def get_or_build_tokenizer(dataset: list[dict], config: dict, lang: str) -> Tokenizer:
@@ -34,22 +32,13 @@ def get_or_build_tokenizer(dataset: list[dict], config: dict, lang: str) -> Toke
     else:
         tokenizer = Tokenizer.from_file(str(tokenizer_path))
         
+    tokenizer.enable_truncation(max_length=config["seq_len"] - 2)
+    
     return tokenizer
 
 def get_dataset(config: dict) -> tuple[Dataset, Dataset]:
     with open("data/languages.json", 'r', encoding='utf-8') as data:
-        raw_data = json.load(data)
-    
-    eng_pcr = EnglishPreprocessor()
-    amharic_pcr = AmharicPreprocessor()
-        
-    # Clean up data
-    dataset = []
-    for i in range(len(raw_data)):
-        x, y = eng_pcr.preprocess(raw_data[i][config["src_lang"]]), amharic_pcr.preprocess(raw_data[i][config["tgt_lang"]])
-        if len(x.split()) > 50 or len(y.split()) > 50:
-            continue
-        dataset.append({ config["src_lang"]: x, config["tgt_lang"]: y })
+        dataset = json.load(data)
     
     train_size = int(0.8 * len(dataset))
     test_size = int(0.1 * len(dataset))
@@ -67,8 +56,8 @@ def get_dataset(config: dict) -> tuple[Dataset, Dataset]:
     
     max_src_len = max_tgt_len = 0
     for data in dataset:
-        max_src_len = max(max_src_len, len(src_tokenizer.encode(data[config["src_lang"]]).ids))
-        max_tgt_len = max(max_tgt_len, len(tgt_tokenizer.encode(data[config["tgt_lang"]]).ids))
+        max_src_len = max(max_src_len, len(train_dataset.encode_src(data[config["src_lang"]])))
+        max_tgt_len = max(max_tgt_len, len(train_dataset.encode_tgt(data[config["tgt_lang"]])))
         
     print(f"Max length of source sentence: {max_src_len}")
     print(f"Max length of target sentence: {max_tgt_len}")
@@ -162,7 +151,7 @@ def train(model: MtTransformerModel, train_dataset: BilingualDataset, val_datase
         # how much of the batches have been processed on the current epoch
         batch_iterator = tqdm(train_dataset.batch_iterator(config["batch_size"]), desc=f"Processing epoch {epoch: 02d}", colour="BLUE")
         
-        loss = 0 
+        losses = []
         # Iterate through the batches
         for batch in batch_iterator:        
             # Retrieve the data points from the current batch
@@ -202,10 +191,12 @@ def train(model: MtTransformerModel, train_dataset: BilingualDataset, val_datase
             # Zero the gradients of the model parameters to prevent gradient accumulation 
             optimizer.zero_grad()
             
-            loss += loss.item()
+            losses.append(loss.item())
+            
             global_step += 1
         
-        current_avg_loss = loss / len(batch_iterator)
+        current_avg_loss = sum(losses) / len(losses)
+        
         """
             Set the transformer module(the model) to evaluation mode and validate the model's performance
         """
