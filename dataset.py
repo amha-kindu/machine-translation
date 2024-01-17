@@ -1,25 +1,25 @@
 import torch
-from torch.utils.data import Dataset
-
-from preprocessor import PreprocessingPipeline
-
+from tokenizers import Tokenizer
+from torch.utils.data import Dataset, DataLoader
 
 class BilingualDataset(Dataset):
-    def __init__(self, dataset: list, src_preprocessor: PreprocessingPipeline, tgt_preprocessor: PreprocessingPipeline, src_lang: str, tgt_lang: str, seq_len: int) -> None:
+    def __init__(self, dataset: list[dict], config: dict, src_tokenizer: Tokenizer, tgt_tokenizer: Tokenizer) -> None:
         super().__init__()
-        self.seq_len  = seq_len
         self.dataset = dataset
-        self.src_lang = src_lang
-        self.tgt_lang = tgt_lang
-        self.src_preprocessor = src_preprocessor
-        self.tgt_preprocessor = tgt_preprocessor
+        self.config = config
+
+        self.src_tokenizer = src_tokenizer
+        self.tgt_tokenizer = tgt_tokenizer
         
-        self.sos_token = torch.tensor([self.src_preprocessor.tokenizer.token_to_id("[SOS]")], dtype=torch.int64)  # (1,)
-        self.eos_token = torch.tensor([self.src_preprocessor.tokenizer.token_to_id("[EOS]")], dtype=torch.int64)  # (1,)
-        self.pad_token = torch.tensor([self.src_preprocessor.tokenizer.token_to_id("[PAD]")], dtype=torch.int64)  # (1,)
+        self.sos_token = torch.tensor([self.src_tokenizer.token_to_id("[SOS]")], dtype=torch.int64)  # (1,)
+        self.eos_token = torch.tensor([self.src_tokenizer.token_to_id("[EOS]")], dtype=torch.int64)  # (1,)
+        self.pad_token = torch.tensor([self.src_tokenizer.token_to_id("[PAD]")], dtype=torch.int64)  # (1,)
         
     def __len__(self):
         return len(self.dataset)
+    
+    def batch_iterator(self, batch_size: int):
+        return DataLoader(self, batch_size, shuffle=True)
     
     @staticmethod
     def lookback_mask(size: int) -> torch.Tensor:
@@ -34,14 +34,14 @@ class BilingualDataset(Dataset):
     
     def __getitem__(self, index) -> dict:
         src_tgt_pair = self.dataset[index]
-        src_text = src_tgt_pair[self.src_lang]
-        tgt_text = src_tgt_pair[self.tgt_lang]
+        src_text = src_tgt_pair[self.config["src_lang"]]
+        tgt_text = src_tgt_pair[self.config["tgt_lang"]]
         
-        src_token_ids = self.src_preprocessor.preprocess(src_text)
-        tgt_token_ids = self.tgt_preprocessor.preprocess(tgt_text)
+        src_token_ids = self.src_tokenizer.encode(src_text).ids
+        tgt_token_ids = self.tgt_tokenizer.encode(tgt_text).ids
         
-        src_padding = self.seq_len - len(src_token_ids) - 2
-        tgt_padding = self.seq_len - len(tgt_token_ids) - 1
+        src_padding = self.config["seq_len"] - len(src_token_ids) - 2
+        tgt_padding = self.config["seq_len"] - len(tgt_token_ids) - 1
         
         assert src_padding >= 0 or tgt_padding < 0, "Sentence length exceeds max sequence length"
         
@@ -67,9 +67,9 @@ class BilingualDataset(Dataset):
             torch.tensor([self.pad_token] * tgt_padding, dtype=torch.int64)     # (tgt_padding,)
         ])  
         
-        assert encoder_input.size(0) == self.seq_len
-        assert decoder_input.size(0) == self.seq_len
-        assert label.size(0) == self.seq_len
+        assert encoder_input.size(0) == self.config["seq_len"]
+        assert decoder_input.size(0) == self.config["seq_len"]
+        assert label.size(0) == self.config["seq_len"]
         
         
         return {
@@ -86,7 +86,7 @@ class BilingualDataset(Dataset):
             # (seq_len,) != (1,) --> (seq_len,) --> (1, 1, seq_len) --> (1, 1, seq_len) & (1, seq_len, seq_len) --> (1, seq_len, seq_len)
             "decoder_mask": (decoder_input != self.pad_token)
                             .unsqueeze(0).unsqueeze(0).int() 
-                            & self.lookback_mask(self.seq_len),  
+                            & self.lookback_mask(self.config["seq_len"]),  
             # (seq_len,)         
             "label": label,
             

@@ -14,7 +14,7 @@ def get_config():
         "batch_size": 8,
         "epochs": 20,
         "lr": 1e-04,
-        "seq_len": 260,
+        "seq_len": 52,
         "d_model": 512,
         "n_blocks": 6,
         "heads": 8,

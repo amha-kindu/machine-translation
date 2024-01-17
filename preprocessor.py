@@ -1,27 +1,21 @@
 import re
-from tokenizers import Tokenizer
 from abc import ABC, abstractmethod
 
 
-class PreprocessingPipeline(ABC):
-    def __init__(self, tokenizer: Tokenizer):
-        self.tokenizer = tokenizer
-
-    def preprocess(self, text: str) -> list[int]:
-        normalized_text = self.normalize(text)
-        tokens = self.tokenizer.encode(normalized_text).ids
-        return tokens
-
-    @abstractmethod
-    def normalize(self, text: str):
-        pass
+class PreprocessingPipeline(ABC):   
+    def __init__(self) -> None:
+        super().__init__()
     
+    @abstractmethod
+    def preprocess(self, text: str) -> str:
+        pass
+
     
 class AmharicPreprocessor(PreprocessingPipeline):
-    def __init__(self, tokenizer: Tokenizer):
-        super().__init__(tokenizer)
+    def __init__(self) -> None:
+        super().__init__()
     
-    def normalize(self, text: str) -> str:
+    def preprocess(self, text: str) -> str:
         # Character level mismatch
         text = self.normalize_char_level_missmatch(text)
         
@@ -157,10 +151,10 @@ class AmharicPreprocessor(PreprocessingPipeline):
     
 
 class EnglishPreprocessor(PreprocessingPipeline):
-    def __init__(self, tokenizer: Tokenizer):
-        super().__init__(tokenizer)
+    def __init__(self) -> None:
+        super().__init__()
     
-    def normalize(self, text: str) -> str:
+    def preprocess(self, text: str) -> str:
         # Lowercase the text
         text = text.lower()
         

@@ -1,9 +1,13 @@
+from tokenizers import Tokenizer
 import torch
 import random
 from enum import Enum
+from config import DEVICE
 from dataset import BilingualDataset
 from model import MtTransformerModel
 from preprocessor import PreprocessingPipeline
+
+
 
 class SamplingStrategy(Enum):
     GREEDY=0,
@@ -12,26 +16,18 @@ class SamplingStrategy(Enum):
 
 class MtInferenceEngine:
     
-    def __init__(self, model: MtTransformerModel, src_preprocessor: PreprocessingPipeline, tgt_preprocessor: PreprocessingPipeline, device: torch.device, top_k: int= 5, nucleus_threshold=10) -> None:
+    def __init__(self, model: MtTransformerModel, src_tokenizer: Tokenizer, tgt_tokenizer: Tokenizer, top_k: int= 5, nucleus_threshold=10) -> None:
         self.model = model
-        self.src_preprocessor = src_preprocessor
-        self.tgt_preprocessor = tgt_preprocessor
-        self.device = device
         self.top_k = top_k
+        self.src_tokenizer = src_tokenizer
+        self.tgt_tokenizer = tgt_tokenizer
         self.nucleus_threshold = nucleus_threshold
-        self.sos_token = torch.tensor([self.src_preprocessor.tokenizer.token_to_id("[SOS]")], dtype=torch.int64)  # (1,)
-        self.eos_token = torch.tensor([self.src_preprocessor.tokenizer.token_to_id("[EOS]")], dtype=torch.int64)  # (1,)
-        self.pad_token = torch.tensor([self.src_preprocessor.tokenizer.token_to_id("[PAD]")], dtype=torch.int64)  # (1,)
+        self.sos_token = torch.tensor([self.src_tokenizer.token_to_id("[SOS]")], dtype=torch.int64, device=DEVICE)  # (1,)
+        self.eos_token = torch.tensor([self.src_tokenizer.token_to_id("[EOS]")], dtype=torch.int64, device=DEVICE)  # (1,)
+        self.pad_token = torch.tensor([self.src_tokenizer.token_to_id("[PAD]")], dtype=torch.int64, device=DEVICE)  # (1,)
         self.model.eval()
      
-    def translate(self, source_text: str, max_len: int, strategy=SamplingStrategy.GREEDY):
-        data = BilingualDataset([{"en": source_text, "am": ""}], self.src_preprocessor, self.tgt_preprocessor, "en", "am", max_len)
-        encoder_input = data["encoder_input"].to(self.device)
-        encoder_mask = data["encoder_mask"].to(self.device)
-        decoder_mask = data["decoder_mask"].to(self.device)
-        
-        self.translate_raw(encoder_input, encoder_mask, decoder_mask, max_len, strategy)
-    
+
     @torch.no_grad()
     def translate_raw(self, encoder_input: torch.Tensor, encoder_mask: torch.Tensor, decoder_mask: torch.Tensor, max_len: int, strategy=SamplingStrategy.GREEDY):        
         # Reuse the encoder output to generate subsequent tokens using the decoder
@@ -39,9 +35,9 @@ class MtInferenceEngine:
         
         # Initialize the decoder input with the start of sentence token
         decoder_input = torch.concat([
-            self.sos_token,                                                       # (1,)
-            torch.tensor([self.pad_token] * (max_len - 1), dtype=torch.int64)     # (max_seq_len - 1,)
-        ]).unsqueeze(0)    
+            self.sos_token,                                                                      # (1,)
+            torch.tensor([self.pad_token] * (max_len - 1), dtype=torch.int64, device=DEVICE)     # (max_seq_len - 1,)
+        ]).unsqueeze(0)   
         
         count = 1
                 
@@ -77,4 +73,4 @@ class MtInferenceEngine:
         # Remove the batch dimension 
         decoder_input = decoder_input.squeeze(0)                                    # torch.tensor([...]) with shape tensor.Size([max_len])
     
-        return self.tgt_preprocessor.tokenizer.decode(decoder_input.detach().cpu().tolist())
+        return self.tgt_tokenizer.decode(decoder_input.detach().cpu().tolist())

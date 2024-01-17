@@ -19,53 +19,58 @@ from pathlib import Path
 
 from preprocessor import AmharicPreprocessor, EnglishPreprocessor
 
-def get_all_sentences(dataset: dict, lang: str) -> list[str]:
-    for item in dataset:
-        yield item[lang]
 
-def get_or_build_tokenizer(config: dict, dataset: list[dict], lang: str) -> Tokenizer:
+def get_or_build_tokenizer(dataset: list[dict], config: dict, lang: str) -> Tokenizer:
     tokenizer_filename = f"{config['tokenizer_basename'].format(lang)}"
     tokenizer_path = Path(config["tokenizer_folder"]) / tokenizer_filename
+    all_sentences = [item[lang] for item in dataset]
     if not Path.exists(tokenizer_path):
         Path(config["tokenizer_folder"]).mkdir(parents=True, exist_ok=True)
         tokenizer = Tokenizer(WordLevel(unk_token='[UNK]'))
         tokenizer.pre_tokenizer = Whitespace()
         trainer: WordLevelTrainer = WordLevelTrainer(special_tokens=["[UNK]", "[SOS]", "[EOS]", "[PAD]"], min_frequency=2)
-        tokenizer.train_from_iterator(get_all_sentences(dataset, lang), trainer=trainer)
+        tokenizer.train_from_iterator(all_sentences, trainer=trainer)
         tokenizer.save(str(tokenizer_path))
     else:
         tokenizer = Tokenizer.from_file(str(tokenizer_path))
         
     return tokenizer
 
-def get_dataset(config: dict) -> tuple[DataLoader, DataLoader, Tokenizer, Tokenizer]:
-    with open("data/languages.json", 'r', encoding='utf-8') as dataset:
-        dataset = json.load(dataset)
+def get_dataset(config: dict) -> tuple[Dataset, Dataset]:
+    with open("data/languages.json", 'r', encoding='utf-8') as data:
+        raw_data = json.load(data)
+    
+    eng_pcr = EnglishPreprocessor()
+    amharic_pcr = AmharicPreprocessor()
         
-    src_tokenizer = get_or_build_tokenizer(config, dataset, config["src_lang"])
-    tgt_tokenizer = get_or_build_tokenizer(config, dataset, config["tgt_lang"])
+    # Clean up data
+    dateset = []
+    for i in range(len(raw_data)):
+        x, y = eng_pcr.preprocess(raw_data[i][config["src_lang"]]), amharic_pcr.preprocess(raw_data[i][config["tgt_lang"]])
+        if len(x.split()) > 50 or len(y.split()) > 50:
+            continue
+        dateset.append({ config["src_lang"]: x, config["tgt_lang"]: y })
     
-    train_size = int(0.9 * len(dataset))
-    val_size = len(dataset) - train_size
+    train_size = int(0.9 * len(dateset))
+    val_size = len(dateset) - train_size
     
-    train_raw, val_raw = random_split(dataset, (train_size, val_size))
+    train_raw, val_raw = random_split(dateset, (train_size, val_size))
     
-    train_dataset = BilingualDataset(train_raw, EnglishPreprocessor(src_tokenizer), AmharicPreprocessor(tgt_tokenizer), config["src_lang"], config["tgt_lang"], config["seq_len"])
-    val_dataset = BilingualDataset(val_raw, EnglishPreprocessor(src_tokenizer), AmharicPreprocessor(tgt_tokenizer), config["src_lang"], config["tgt_lang"], config["seq_len"])
+    src_tokenizer = get_or_build_tokenizer(dateset, config, config["src_lang"])
+    tgt_tokenizer = get_or_build_tokenizer(dateset, config, config["tgt_lang"])
     
-    max_src_len = 0
-    max_tgt_len = 0
-    for data in dataset:
+    train_dataset = BilingualDataset(train_raw, config, src_tokenizer, tgt_tokenizer)
+    val_dataset = BilingualDataset(val_raw, config, src_tokenizer, tgt_tokenizer)
+    
+    max_src_len = max_tgt_len = 0
+    for data in dateset:
         max_src_len = max(max_src_len, len(src_tokenizer.encode(data[config["src_lang"]]).ids))
         max_tgt_len = max(max_tgt_len, len(tgt_tokenizer.encode(data[config["tgt_lang"]]).ids))
         
     print(f"Max length of source sentence: {max_src_len}")
     print(f"Max length of target sentence: {max_tgt_len}")
     
-    train_dataloader = DataLoader(train_dataset, config["batch_size"], shuffle=True)
-    val_dataloader = DataLoader(val_dataset, 1, shuffle=True)
-    
-    return train_dataloader, val_dataloader, src_tokenizer, tgt_tokenizer
+    return train_dataset, val_dataset
     
 
 def get_model(config: dict, src_vocab_size: int, tgt_vocab_size):
@@ -121,7 +126,9 @@ def validate(
     writer.flush()
     
     
-def train(model: MtTransformerModel, train_dataloader: DataLoader, val_dataloader: DataLoader, src_tokenizer: Tokenizer, tgt_tokenizer: Tokenizer, config: dict) -> None:
+def train(model: MtTransformerModel, train_dataset: BilingualDataset, val_dataset: BilingualDataset, config: dict) -> None:
+    TRAINING_INSTANCE = 1
+    
     # Configure Tensorboard
     writer = SummaryWriter(config["tb_log_dir"])
     
@@ -141,20 +148,20 @@ def train(model: MtTransformerModel, train_dataloader: DataLoader, val_dataloade
         model.load_state_dict(state["model_state_dict"])
         optimizer.load_state_dict(state["optimizer_state_dict"])
         
-    loss_func = nn.CrossEntropyLoss(ignore_index=src_tokenizer.token_to_id('[PAD]'), label_smoothing=0.1).to(DEVICE)
+    loss_func = nn.CrossEntropyLoss(ignore_index=train_dataset.src_tokenizer.token_to_id('[PAD]'), label_smoothing=0.1).to(DEVICE)
     
     for epoch in range(initial_epoch, config["epochs"]):
+        """
+            Set the transformer module(the model) to training mode
+        """
+        model.train()
+        
         # Wrap train_dataloader with tqdm to show a progress bar to show
         # how much of the batches have been processed on the current epoch
-        batch_iterator = tqdm(train_dataloader, desc=f"Processing epoch {epoch: 02d}", colour="BLUE")
+        batch_iterator = tqdm(train_dataset.batch_iterator(config["batch_size"]), desc=f"Processing epoch {epoch: 02d}", colour="BLUE")
         
         # Iterate through the batches
-        for batch in batch_iterator:
-            """
-                Set the transformer module(the model) to training mode
-            """
-            model.train()
-        
+        for batch in batch_iterator:        
             # Retrieve the data points from the current batch
             encoder_input = batch["encoder_input"].to(DEVICE)       # (batches, seq_len) 
             decoder_input = batch["decoder_input"].to(DEVICE)       # (batches, seq_len) 
@@ -170,7 +177,7 @@ def train(model: MtTransformerModel, train_dataloader: DataLoader, val_dataloade
                         
             # Compute the loss
             loss: torch.Tensor = loss_func(
-                proj_output.view(-1, tgt_tokenizer.get_vocab_size()),     # (batches, seq_len, tgt_vocab_size) --> (batches*seq_len, tgt_vocab_size)
+                proj_output.view(-1, train_dataset.tgt_tokenizer.get_vocab_size()),     # (batches, seq_len, tgt_vocab_size) --> (batches*seq_len, tgt_vocab_size)
                 label.view(-1)                                            # (batches, seq_len) --> (batches * seq_len, )
             )
             
@@ -192,16 +199,16 @@ def train(model: MtTransformerModel, train_dataloader: DataLoader, val_dataloade
             # Zero the gradients of the model parameters to prevent gradient accumulation 
             optimizer.zero_grad()
             
-            """
-                Set the transformer module(the model) to evaluation mode and validate the model's performance
-            """
-            infr_engine = MtInferenceEngine(model, EnglishPreprocessor(src_tokenizer), AmharicPreprocessor(tgt_tokenizer), DEVICE)
-            validate(infr_engine, val_dataloader, config["seq_len"], global_step, writer)
-            
             global_step += 1
-            
+        
+        """
+            Set the transformer module(the model) to evaluation mode and validate the model's performance
+        """
+        infr_engine = MtInferenceEngine(model, train_dataset.src_tokenizer, train_dataset.tgt_tokenizer)
+        validate(infr_engine, val_dataset.batch_iterator(1), config["seq_len"], global_step, writer)
+        
         # Save the model at the end of every epoch
-        model_filename = get_weights_file_path(config, f"{epoch:02d}")
+        model_filename = get_weights_file_path(config, f"ti-{TRAINING_INSTANCE:02d}_epoch-{epoch:02d}_loss-{loss.item():6.3f}_batch-{config['batch_size']}_lr-{config['lr']:.0e}")
         torch.save({
             "epoch": epoch,
             "model_state_dict": model.state_dict(),
@@ -215,8 +222,8 @@ if __name__ == "__main__":
     print(f"Training started on `{DEVICE}` device")
     
     Path(config["model_folder"]).mkdir(parents=True, exist_ok=True)
-    train_dataloader, val_dataloader, src_tokenizer, tgt_tokenizer = get_dataset(config)
+    train_dataset, val_dataset = get_dataset(config)
     
-    model = get_model(config, src_tokenizer.get_vocab_size(), tgt_tokenizer.get_vocab_size()).to(DEVICE)    
+    model = get_model(config, train_dataset.src_tokenizer.get_vocab_size(), train_dataset.tgt_tokenizer.get_vocab_size()).to(DEVICE)    
     
-    train(model, train_dataloader, val_dataloader, src_tokenizer, tgt_tokenizer, config)
+    train(model, train_dataset, val_dataset, config)
