@@ -61,17 +61,19 @@ class MtInferenceEngine:
             decoder_output = self.model.decode(encoder_output, encoder_mask, decoder_input, decoder_mask)
             
             # Retrieve the current probability distribution of the tokens in the vocabulary
-            token_probab = self.model.project(decoder_output)                       # (1, seq_len, tgt_vocab_size)
+            token_probab = self.model.project(decoder_output)                                   # (1, seq_len, tgt_vocab_size)
             
-            # Retrieve the last predicted token in the sequence
-            next_token_prob = token_probab[:, -1]                                   # (1, tgt_vocab_size)
+            # Retrieve the probability distribution over vocab_size on the `count`th  
+            # position in the second dimension(`seq_len`)
+            # (1, seq_len, tgt_vocab_size) --> (1, tgt_vocab_size)
+            next_token_prob = token_probab[:, count]                                            # (1, tgt_vocab_size)
             
             """
                 Retrieve the next token based on its probability and the strategy selected
             """
             if strategy == SamplingStrategy.GREEDY:
                 # Retrieve the token with the highest probability
-                _, next_token = torch.max(next_token_prob, dim=1)                   # value=tensor([max_prob]), indice=tensor([token_id])
+                _, next_token = torch.max(next_token_prob, dim=1)                   # value=tensor([max_prob]), indice=tensor([index{token_id}])
             elif strategy == SamplingStrategy.TOP_K_RANDOM:
                 _, topk_indices = torch.topk(token_probab, k=self.top_k)
                 next_token = random.choice(topk_indices.squeeze().tolist())

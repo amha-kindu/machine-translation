@@ -137,10 +137,16 @@ class MultiHeadAttentionBlock(nn.Module):
         
         # (batches, heads, seq_len, d_k) @ (batches, heads, d_k, seq_len) --> (batches, heads, seq_len, seq_len)
         attention_scores = (query @ key.transpose(-2, -1)) / math.sqrt(d_k)
+        
+
+        # Here we apply the lookback mask so that the output at a certain position(which is a token)
+        # can only depend on the tokens on the previous positions. We also apply the ignore masks 
+        # so that attention score for the padding special token [PAD] is zero.
         if mask is not None:
             attention_scores.masked_fill_(mask == 0, -1e09)
             
-        # (batches, heads, seq_len, seq_len) but why dim=-1 ?
+        # (batches, heads, seq_len, seq_len) which applies softmax to the last dimension
+        # so that the sum of the probabilities along this dimension equals 1
         attention_scores = attention_scores.softmax(dim=-1)
         if dropout is not None:
             attention_scores = dropout(attention_scores)
@@ -192,6 +198,7 @@ class ResidualConnection(nn.Module):
         self.norm = LayerNormalization()
         
     def forward(self, x: torch.Tensor, sublayer: nn.Module) -> torch.Tensor:
+        # return x + self.dropout(sublayer(self.norm(x)))
         return self.dropout(self.norm(x + sublayer(x)))
     
     

@@ -75,7 +75,7 @@ def get_model(src_vocab_size: int, tgt_vocab_size):
         dff=DFF
     )
 
-
+@torch.no_grad()
 def validate(model: MtTransformerModel, val_dataset: BilingualDataset, loss_func: nn.CrossEntropyLoss, batch_size=1):    
     """
         Set the transformer module(the model) to evaluation mode
@@ -136,18 +136,19 @@ def train(model: MtTransformerModel, train_dataset: BilingualDataset, val_datase
     
     prev_loss = float('inf')
     for epoch in range(initial_epoch, EPOCHS):
-        """
-            Set the transformer module(the model) to back to training mode
-        """
-        model.train() 
-             
         # Wrap train_dataloader with tqdm to show a progress bar to show
         # how much of the batches have been processed on the current epoch
         batch_iterator = tqdm(train_dataset.batch_iterator(BATCH_SIZE), desc=f"Processing epoch {epoch: 02d}", colour="BLUE")
         
-        losses = []
+        train_losses = []
+        val_losses = []
         # Iterate through the batches
-        for batch in batch_iterator:        
+        for batch in batch_iterator:    
+            """
+                Set the transformer module(the model) to back to training mode
+            """
+            model.train() 
+                 
             # Retrieve the data points from the current batch
             encoder_input = batch["encoder_input"].to(DEVICE)       # (batches, seq_len) 
             decoder_input = batch["decoder_input"].to(DEVICE)       # (batches, seq_len) 
@@ -167,14 +168,14 @@ def train(model: MtTransformerModel, train_dataset: BilingualDataset, val_datase
                 label.view(-1)                                                          # (batches, seq_len) --> (batches * seq_len, )
             )
             
-            # if global_step and global_step % 10 == 0:
-            # Evaluate the model on the validation dataset(aka unseen data)
-            val_loss = validate(model, val_dataset, loss_func)
-            
-            # Log the training and validation loss on tensorboard
-            writer.add_scalars("Cross-Entropy-Loss", { "Training": train_loss.item(), "Validation": val_loss }, global_step)
-            # else:
-            #     writer.add_scalars("Cross-Entropy-Loss", { "Training": train_loss.item() }, global_step)
+            if global_step % 10 == 0:
+                # Evaluate the model on the validation dataset(aka unseen data)
+                val_loss = validate(model, val_dataset, loss_func)
+                
+                # Log the training and validation loss on tensorboard
+                writer.add_scalars("Cross-Entropy-Loss", { "Training": train_loss.item(), "Validation": val_loss }, global_step)
+            else:
+                writer.add_scalars("Cross-Entropy-Loss", { "Training": train_loss.item() }, global_step)
                 
             writer.flush()
             
@@ -191,17 +192,21 @@ def train(model: MtTransformerModel, train_dataset: BilingualDataset, val_datase
             # Zero the gradients of the model parameters to prevent gradient accumulation 
             optimizer.zero_grad()
             
-            losses.append(train_loss.item())
+            train_losses.append(train_loss.item())
+            val_losses.append(val_loss)
             
             global_step += 1
+            
+            break
         
-        current_avg_loss = sum(losses) / len(losses)
+        current_avg_train_loss = sum(train_losses) / len(train_losses)
+        current_avg_val_loss = sum(val_losses) / len(val_losses)
         
-        if current_avg_loss < prev_loss:
-            prev_loss = current_avg_loss
+        if current_avg_train_loss < prev_loss:
+            prev_loss = current_avg_train_loss
             
             # Save the model at the end of every epoch
-            model_filename = get_weights_file_path(f"epoch-{epoch:02d}_avgLoss-{current_avg_loss:6.3f}_batch-{BATCH_SIZE}_lr-{LR:.0e}")
+            model_filename = get_weights_file_path(f"epoch-{epoch:02d}_avgTrainLoss-{current_avg_train_loss:6.3f}_avgValLoss-{current_avg_val_loss:6.3f}_batch-{BATCH_SIZE}_lr-{LR:.0e}")
             torch.save({
                 "epoch": epoch,
                 "model_state_dict": model.state_dict(),
