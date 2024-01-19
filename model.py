@@ -67,8 +67,8 @@ class LayerNormalization(nn.Module):
     def __init__(self, epsilon: float = 1e-06) -> None:
         super().__init__()
         self.epsilon = epsilon
-        self.alpha = nn.Parameter(torch.ones(1)) # This is multiplied
-        self.bias = nn.Parameter(torch.zeros(1)) # This is added
+        self.alpha = nn.Parameter(torch.ones(1).to(DEVICE)) # This is multiplied
+        self.bias = nn.Parameter(torch.zeros(1).to(DEVICE)) # This is added
         
     """
         Args:
@@ -78,8 +78,8 @@ class LayerNormalization(nn.Module):
             torch.Tensor: (batches, seq_len, d_model)
     """
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        mean = x.mean(dim=-1, keepdim=True)
-        std = x.std(dim=-1, keepdim=True)
+        mean = x.mean(dim=-1, keepdim=True).to(DEVICE)
+        std = x.std(dim=-1, keepdim=True).to(DEVICE)
         return self.alpha * (x - mean) / (std + self.epsilon) + self.bias
     
         

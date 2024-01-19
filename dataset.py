@@ -1,14 +1,14 @@
 import torch
+from config import *
 from tokenizers import Tokenizer
 from torch.utils.data import Dataset, DataLoader
 
 from preprocessor import AmharicPreprocessor, EnglishPreprocessor
 
 class BilingualDataset(Dataset):
-    def __init__(self, dataset: list[dict], config: dict, src_tokenizer: Tokenizer, tgt_tokenizer: Tokenizer) -> None:
+    def __init__(self, dataset: list[dict], src_tokenizer: Tokenizer, tgt_tokenizer: Tokenizer) -> None:
         super().__init__()
         self.dataset = dataset
-        self.config = config
 
         self.src_tokenizer = src_tokenizer
         self.tgt_tokenizer = tgt_tokenizer
@@ -49,28 +49,28 @@ class BilingualDataset(Dataset):
     
     def __getitem__(self, index) -> dict:
         src_tgt_pair = self.dataset[index]
-        src_text = src_tgt_pair[self.config["src_lang"]]
-        tgt_text = src_tgt_pair[self.config["tgt_lang"]]
+        src_text = src_tgt_pair[SRC_LANG]
+        tgt_text = src_tgt_pair[TGT_LANG]
         
         src_token_ids = self.encode_src(src_text)
         tgt_token_ids = self.encode_tgt(tgt_text)
         
-        src_padding = self.config["seq_len"] - len(src_token_ids) - 2
-        tgt_padding = self.config["seq_len"] - len(tgt_token_ids) - 1
+        src_padding = SEQ_LEN - len(src_token_ids) - 2
+        tgt_padding = SEQ_LEN - len(tgt_token_ids) - 1
         
         assert src_padding >= 0 or tgt_padding < 0, "Sentence length exceeds max sequence length"
         
         # (seq_len,)
         encoder_input = torch.concat([
-            self.sos_token,                                                                    # (1,)
+            self.sos_token,                                                     # (1,)
             torch.tensor(src_token_ids, dtype=torch.int64),                     # (len(src_token_ids),)
-            self.eos_token,                                                                    # (1,)
+            self.eos_token,                                                     # (1,)
             torch.tensor([self.pad_token] * src_padding, dtype=torch.int64)     # (src_padding,)
         ])     
         
         # (seq_len,)
         decoder_input = torch.concat([
-            self.sos_token,                                                                    # (1,)
+            self.sos_token,                                                     # (1,)
             torch.tensor(tgt_token_ids, dtype=torch.int64),                     # (len(tgt_token_ids),)
             torch.tensor([self.pad_token] * tgt_padding, dtype=torch.int64)     # (tgt_padding,)
         ])                    
@@ -78,14 +78,13 @@ class BilingualDataset(Dataset):
         # (seq_len,)
         label = torch.concat([
             torch.tensor(tgt_token_ids, dtype=torch.int64),                     # (tgt_padding,)
-            self.eos_token,                                                                    # (1,)
+            self.eos_token,                                                     # (1,)
             torch.tensor([self.pad_token] * tgt_padding, dtype=torch.int64)     # (tgt_padding,)
         ])  
         
-        assert encoder_input.size(0) == self.config["seq_len"]
-        assert decoder_input.size(0) == self.config["seq_len"]
-        assert label.size(0) == self.config["seq_len"]
-        
+        assert encoder_input.size(0) == SEQ_LEN
+        assert decoder_input.size(0) == SEQ_LEN
+        assert label.size(0) == SEQ_LEN        
         
         return {
             # (seq_len,)
@@ -101,7 +100,7 @@ class BilingualDataset(Dataset):
             # (seq_len,) != (1,) --> (seq_len,) --> (1, 1, seq_len) --> (1, 1, seq_len) & (1, seq_len, seq_len) --> (1, seq_len, seq_len)
             "decoder_mask": (decoder_input != self.pad_token)
                             .unsqueeze(0).unsqueeze(0).int() 
-                            & self.lookback_mask(self.config["seq_len"]),  
+                            & self.lookback_mask(SEQ_LEN),  
             # (seq_len,)         
             "label": label,
             

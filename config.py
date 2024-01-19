@@ -1,7 +1,5 @@
 import torch
-from pathlib import Path
 
-DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 torch.manual_seed(3000)
 if torch.cuda.is_available():
     DEVICE = torch.device('cuda')
@@ -9,27 +7,24 @@ if torch.cuda.is_available():
 else:
     DEVICE = torch.device('cpu')
 
-def get_config():
-    return {
-        "batch_size": 8,
-        "epochs": 20,
-        "lr": 1e-04,
-        "seq_len": 52,
-        "d_model": 512,
-        "n_blocks": 6,
-        "heads": 8,
-        "dropout": 0.1,
-        "dff": 2048,
-        "src_lang": "en",
-        "tgt_lang": "am",
-        "model_folder":"models",
-        "model_basename": "tmodel_",
-        "preload": False,
-        "tokenizer_folder":"tokenizers",
-        "tokenizer_basename": "tokenizer_{0}.json",
-        "tb_log_dir": "logs/tmodel"
-    }
+BATCH_SIZE = 32
+EPOCHS = 50
+LR = 2e-04
+SEQ_LEN=52
+D_MODEL = 512
+N_BLOCKS = 6
+HEADS = 8
+DROPOUT = 0.1
+DFF = 2048
+SRC_LANG = "en"
+TGT_LANG = "am"
+MODEL_FOLDER = "models"
+MODEL_BASENAME = "tmodel_"
+PRELOAD_MODEL_SUFFIX = ""
+TOKENIZER_FOLDER = "tokenizers"
+TOKENIZER_BASENAME = "tokenizer_{0}.json"
+TB_LOG_DIR = "logs/tmodel"
+DATASET_PATH = "data/languages.json"
     
-def get_weights_file_path(config: dict, epoch: str):
-    model_filename = f"{config['model_basename']}{epoch}.pt"
-    return str(Path(".")) / config["model_folder"] / model_filename
+def get_weights_file_path(suffix: str):
+    return f"{MODEL_FOLDER}/{MODEL_BASENAME}{suffix}.pt"

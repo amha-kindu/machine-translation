@@ -1,12 +1,10 @@
-from tokenizers import Tokenizer
 import torch
 import random
+from config import *
 from enum import Enum
-from config import DEVICE
+from tokenizers import Tokenizer
 from dataset import BilingualDataset
 from model import MtTransformerModel
-from preprocessor import PreprocessingPipeline
-
 
 
 class SamplingStrategy(Enum):
@@ -26,10 +24,24 @@ class MtInferenceEngine:
         self.eos_token = torch.tensor([self.src_tokenizer.token_to_id("[EOS]")], dtype=torch.int64, device=DEVICE)  # (1,)
         self.pad_token = torch.tensor([self.src_tokenizer.token_to_id("[PAD]")], dtype=torch.int64, device=DEVICE)  # (1,)
         self.model.eval()
-     
+        
+    def translate(self, source_text: str, seq_len: int, strategy=SamplingStrategy.GREEDY) -> tuple[str, str]:
+        dataset = BilingualDataset(
+            dataset=[{"en": source_text, "am":"" }], 
+            src_tokenizer=self.src_tokenizer,
+            tgt_tokenizer=self.tgt_tokenizer
+        )
+        batch_iterator = iter( dataset.batch_iterator(1))
+        batch = next(batch_iterator)
+        
+        encoder_input = batch["encoder_input"].to(DEVICE)       # (1, seq_len) 
+        encoder_mask = batch["encoder_mask"].to(DEVICE)         # (1, 1, 1, seq_len) 
+        decoder_mask = batch["decoder_mask"].to(DEVICE)         # (1, 1, seq_len, seq_len) 
+                        
+        return self.translate_raw(encoder_input, encoder_mask, decoder_mask, seq_len, strategy)
 
     @torch.no_grad()
-    def translate_raw(self, encoder_input: torch.Tensor, encoder_mask: torch.Tensor, decoder_mask: torch.Tensor, max_len: int, strategy=SamplingStrategy.GREEDY):        
+    def translate_raw(self, encoder_input: torch.Tensor, encoder_mask: torch.Tensor, decoder_mask: torch.Tensor, max_len: int, strategy=SamplingStrategy.GREEDY) -> str:        
         # Reuse the encoder output to generate subsequent tokens using the decoder
         encoder_output = self.model.encode(encoder_input, encoder_mask)
         
