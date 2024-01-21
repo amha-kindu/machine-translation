@@ -196,9 +196,7 @@ def train(model: MtTransformerModel, train_dataset: BilingualDataset, val_datase
             val_losses.append(val_loss)
             
             global_step += 1
-            
-            break
-        
+                    
         current_avg_train_loss = sum(train_losses) / len(train_losses)
         current_avg_val_loss = sum(val_losses) / len(val_losses)
         
