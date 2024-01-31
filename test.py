@@ -90,5 +90,5 @@ if __name__ == "__main__":
     print(f"Testing finished with an average cross entropy of {avg_loss}")
     
     user_input = input("Try is yourself. Enter a short english sentence")
-    expected, predicted = inference_engine.translate(user_input, BATCH_SIZE)
+    expected, predicted = inference_engine.translate(user_input, SEQ_LEN)
     print(f"\n Predicted: {predicted}")    

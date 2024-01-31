@@ -5,7 +5,7 @@ import torch.nn as nn
 from config import DEVICE
 
 
-class TextEmbedding(nn.Module):
+class WordEmbedding(nn.Module):
     def __init__(self, d_model: int, vocab_size: int) -> None:
         super().__init__()
         self.d_model = d_model
@@ -63,32 +63,12 @@ class PositionalEncoding(nn.Module):
         return self.dropout(x + self.pe[:, :x.shape[1], :].requires_grad_(False))
     
     
-class LayerNormalization(nn.Module):
-    def __init__(self, epsilon: float = 1e-06) -> None:
-        super().__init__()
-        self.epsilon = epsilon
-        self.alpha = nn.Parameter(torch.ones(1).to(DEVICE)) # This is multiplied
-        self.bias = nn.Parameter(torch.zeros(1).to(DEVICE)) # This is added
-        
-    """
-        Args:
-            x (torch.Tensor): (batches, seq_len, d_model) where  0 < seq_len < self.max_seq_len
-
-        Returns:
-            torch.Tensor: (batches, seq_len, d_model)
-    """
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        mean = x.mean(dim=-1, keepdim=True).to(DEVICE)
-        std = x.std(dim=-1, keepdim=True).to(DEVICE)
-        return self.alpha * (x - mean) / (std + self.epsilon) + self.bias
-    
-        
 class FeedForwardBlock(nn.Module):
     def __init__(self, d_model: int, dff: int, dropout: float) -> None:
         super().__init__()
-        self.linear_1 = nn.Linear(d_model, dff).to(DEVICE) # W1 and B1
+        self.linear_1 = nn.Linear(d_model, dff).to(DEVICE)
         self.dropout = nn.Dropout(dropout)
-        self.linear_2 = nn.Linear(dff, d_model).to(DEVICE) # W2 and B2
+        self.linear_2 = nn.Linear(dff, d_model).to(DEVICE)
         
     """
         Args:
@@ -99,7 +79,7 @@ class FeedForwardBlock(nn.Module):
     """
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # (batches, seq_len, d_model) -> (batches, seq_len, dff) -> (batches, seq_len, d_model)
-        return self.linear_2(self.dropout(torch.relu(self.linear_1(x))))
+        x = self.linear_2(self.dropout(torch.relu(self.linear_1(x))))
     
     
 class MultiHeadAttentionBlock(nn.Module):
@@ -112,11 +92,11 @@ class MultiHeadAttentionBlock(nn.Module):
         
         self.d_k = d_model // heads
         
-        self.W_q = nn.Linear(d_model, d_model).to(DEVICE)
-        self.W_k = nn.Linear(d_model, d_model).to(DEVICE)
-        self.W_v = nn.Linear(d_model, d_model).to(DEVICE)
+        self.W_q = nn.Linear(d_model, d_model, bias=False).to(DEVICE)
+        self.W_k = nn.Linear(d_model, d_model, bias=False).to(DEVICE)
+        self.W_v = nn.Linear(d_model, d_model, bias=False).to(DEVICE)
 
-        self.W_o = nn.Linear(d_model, d_model).to(DEVICE)
+        self.W_o = nn.Linear(d_model, d_model, bias=False).to(DEVICE)
         self.dropout = nn.Dropout(dropout)
     
     """
@@ -192,33 +172,32 @@ class MultiHeadAttentionBlock(nn.Module):
     
     
 class ResidualConnection(nn.Module):
-    def __init__(self, dropout: float) -> None:
+    def __init__(self, features: int, dropout: float) -> None:
         super().__init__()
         self.dropout = nn.Dropout(dropout)
-        self.norm = LayerNormalization()
+        self.norm = nn.LayerNorm(features, device=DEVICE)
         
     def forward(self, x: torch.Tensor, sublayer: nn.Module) -> torch.Tensor:
-        # return x + self.dropout(sublayer(self.norm(x)))
-        return self.dropout(self.norm(x + sublayer(x)))
+        return x + self.dropout(sublayer(self.norm(x)))
     
     
-class Encoder(nn.Module):
-    def __init__(self, self_attention_block: MultiHeadAttentionBlock, feed_forward_block: FeedForwardBlock, dropout: float) -> None:
+class EncoderBlock(nn.Module):
+    def __init__(self, features: int, self_attention_block: MultiHeadAttentionBlock, feed_forward_block: FeedForwardBlock, dropout: float) -> None:
         super().__init__()
         self.self_attention_block = self_attention_block
         self.feed_forward_block = feed_forward_block
-        self.residual_connections = nn.ModuleList([ResidualConnection(dropout) for _ in range(2)])
+        self.residual_connections = nn.ModuleList([ResidualConnection(features, dropout) for _ in range(2)])
     
     def forward(self, x: torch.Tensor, src_mask: torch.Tensor) -> torch.Tensor:
         x = self.residual_connections[0](x, lambda x: self.self_attention_block(x, x, x, src_mask))
         return self.residual_connections[1](x, self.feed_forward_block)
     
     
-class EncoderStack(nn.Module):
-    def __init__(self, encoder_blocks: nn.ModuleList) -> None:
+class Encoder(nn.Module):
+    def __init__(self, features: int, encoder_blocks: nn.ModuleList) -> None:
         super().__init__()
         self.encoder_blocks = encoder_blocks
-        self.norm = LayerNormalization()
+        self.norm = nn.LayerNorm(features, device=DEVICE)
         
     def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         for block in self.encoder_blocks:
@@ -226,14 +205,14 @@ class EncoderStack(nn.Module):
         return self.norm(x)
     
     
-class Decoder(nn.Module):
-    def __init__(self, self_attention_block: MultiHeadAttentionBlock, cross_attention_block: MultiHeadAttentionBlock, feed_forward_block: FeedForwardBlock, dropout: float) -> None:
+class DecoderBlock(nn.Module):
+    def __init__(self, features: int, self_attention_block: MultiHeadAttentionBlock, cross_attention_block: MultiHeadAttentionBlock, feed_forward_block: FeedForwardBlock, dropout: float) -> None:
         super().__init__()
         self.self_attention_block = self_attention_block
         self.cross_attention_block = cross_attention_block
         self.feed_forward_block = feed_forward_block
         self.dropout = nn.Dropout(dropout)
-        self.residual_connections = nn.ModuleList([ResidualConnection(dropout) for _ in range(3)])
+        self.residual_connections = nn.ModuleList([ResidualConnection(features, dropout) for _ in range(3)])
         
     # Since this transformer model is for translation we have a src_mask(from the encoder) and tgt_mask(from the decoder) which are two different languages
     def forward(self, x: torch.Tensor, encoder_output: torch.Tensor, src_mask: torch.Tensor, tgt_mask: torch.Tensor) -> torch.Tensor:
@@ -243,11 +222,11 @@ class Decoder(nn.Module):
         return x
        
         
-class DecoderStack(nn.Module):
-    def __init__(self, layers: nn.ModuleList) -> None:
+class Decoder(nn.Module):
+    def __init__(self, features: int, layers: nn.ModuleList) -> None:
         super().__init__()
         self.layers = layers
-        self.norm = LayerNormalization()
+        self.norm = nn.LayerNorm(features, device=DEVICE)
         
     def forward(self, x: torch.Tensor, encoder_output: torch.Tensor, src_mask: torch.Tensor, tgt_mask: torch.Tensor) -> torch.Tensor:
         for layer in self.layers:
@@ -262,11 +241,11 @@ class ProjectionLayer(nn.Module):
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # (batches, seq_len, d_model) --> (batches, seq_len, vocab_size)
-        return torch.log_softmax(self.proj(x), dim=-1)
+        return self.proj(x)
     
     
 class MtTransformerModel(nn.Module):
-    def __init__(self, encoder: EncoderStack, decoder: DecoderStack, src_embed: TextEmbedding, tgt_embed: TextEmbedding, src_pos: PositionalEncoding, tgt_pos: PositionalEncoding, projection_layer: ProjectionLayer) -> None:
+    def __init__(self, encoder: Encoder, decoder: Decoder, src_embed: WordEmbedding, tgt_embed: WordEmbedding, src_pos: PositionalEncoding, tgt_pos: PositionalEncoding, projection_layer: ProjectionLayer) -> None:
         super().__init__()
         self.encoder = encoder
         self.decoder = decoder
@@ -295,44 +274,44 @@ class MtTransformerModel(nn.Module):
         tgt_vocab_size: int,
         src_seq_len: int,
         tgt_seq_len: int,
-        d_model: int = 512,
-        n_blocks: int = 6,
-        heads: int = 8,
-        dropout: float = 0.1,
-        dff: int = 2048
+        d_model: int,
+        n_blocks: int,
+        heads: int,
+        dropout: float,
+        dff: int 
     ):
         # Create the embedding layers
-        src_embed = TextEmbedding(d_model, src_vocab_size)
-        tgt_embed = TextEmbedding(d_model, tgt_vocab_size)
+        src_embed = WordEmbedding(d_model, src_vocab_size)
+        tgt_embed = WordEmbedding(d_model, tgt_vocab_size)
         
         # Create the positional encoding layers
         src_pos = PositionalEncoding(d_model, src_seq_len, dropout)
         tgt_pos = PositionalEncoding(d_model, tgt_seq_len, dropout)
         
         # Create n_blocks number of encoders
-        encoders = []
+        encoder_layers = []
         for _ in range(n_blocks):
             self_attention_block = MultiHeadAttentionBlock(d_model, heads, dropout)
             feed_forward_block = FeedForwardBlock(d_model, dff, dropout)
             
-            encoders.append(
-                Encoder(self_attention_block, feed_forward_block, dropout)
+            encoder_layers.append(
+                EncoderBlock(d_model, self_attention_block, feed_forward_block, dropout)
             )
             
         # Create n_blocks number of decoders
-        decoders = []
+        decoder_layers = []
         for _ in range(n_blocks):
             self_attention_block = MultiHeadAttentionBlock(d_model, heads, dropout)
             cross_attention_block = MultiHeadAttentionBlock(d_model, heads, dropout)
             feed_forward_block = FeedForwardBlock(d_model, dff, dropout)
             
-            decoders.append(
-                Decoder(self_attention_block, cross_attention_block, feed_forward_block, dropout)
+            decoder_layers.append(
+                DecoderBlock(d_model, self_attention_block, cross_attention_block, feed_forward_block, dropout)
             )
             
         # Create the encoder and the decoder
-        encoder = EncoderStack(encoders)
-        decoder = DecoderStack(decoders)
+        encoder = Encoder(d_model, encoder_layers)
+        decoder = Decoder(d_model, decoder_layers)
         
         # Create the projection layer
         projection_layer = ProjectionLayer(d_model, tgt_vocab_size)
@@ -343,6 +322,6 @@ class MtTransformerModel(nn.Module):
         # Initialize the parameters
         for p in transformer.parameters():
             if p.dim() > 1:
-                nn.init.xavier_uniform_(p.data)
+                nn.init.xavier_uniform_(p)
                 
         return transformer

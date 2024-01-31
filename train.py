@@ -11,7 +11,7 @@ from tokenizers.models import WordLevel
 from tokenizers.trainers import WordLevelTrainer
 from tokenizers.pre_tokenizers import Whitespace
 from torch.utils.tensorboard import SummaryWriter
-from torch.utils.data import random_split
+from torch.utils.data import random_split, DataLoader
 
 
 
@@ -76,7 +76,7 @@ def get_model(src_vocab_size: int, tgt_vocab_size):
     )
 
 @torch.no_grad()
-def validate(model: MtTransformerModel, val_dataset: BilingualDataset, loss_func: nn.CrossEntropyLoss, batch_size=1):    
+def validate(model: MtTransformerModel, val_batch_iterator: DataLoader, loss_func: nn.CrossEntropyLoss):    
     """
         Set the transformer module(the model) to evaluation mode
     """
@@ -84,7 +84,7 @@ def validate(model: MtTransformerModel, val_dataset: BilingualDataset, loss_func
     
     val_losses = []    
     # Evaluate model with `num_examples` number of random examples
-    for batch in val_dataset.batch_iterator(batch_size):
+    for batch in val_batch_iterator:
         # Retrieve the data points from the current batch
         encoder_input = batch["encoder_input"].to(DEVICE)       # (batches, seq_len) 
         decoder_input = batch["decoder_input"].to(DEVICE)       # (batches, seq_len) 
@@ -134,11 +134,14 @@ def train(model: MtTransformerModel, train_dataset: BilingualDataset, val_datase
         
     loss_func = nn.CrossEntropyLoss(ignore_index=train_dataset.src_tokenizer.token_to_id('[PAD]'), label_smoothing=0.1).to(DEVICE)
     
+    batch_iterator = train_dataset.batch_iterator(BATCH_SIZE)
+    val_batch_iterator = val_dataset.batch_iterator(BATCH_SIZE)
+    
     prev_loss = float('inf')
     for epoch in range(initial_epoch, EPOCHS):
         # Wrap train_dataloader with tqdm to show a progress bar to show
         # how much of the batches have been processed on the current epoch
-        batch_iterator = tqdm(train_dataset.batch_iterator(BATCH_SIZE), desc=f"Processing epoch {epoch: 02d}", colour="BLUE")
+        batch_iterator = tqdm(batch_iterator, desc=f"Processing epoch {epoch: 02d}", colour="BLUE")
         
         train_losses = []
         val_losses = []
@@ -170,7 +173,7 @@ def train(model: MtTransformerModel, train_dataset: BilingualDataset, val_datase
             
             if global_step % 10 == 0:
                 # Evaluate the model on the validation dataset(aka unseen data)
-                val_loss = validate(model, val_dataset, loss_func)
+                val_loss = validate(model, val_batch_iterator, loss_func)
                 
                 # Log the training and validation loss on tensorboard
                 writer.add_scalars("Cross-Entropy-Loss", { "Training": train_loss.item(), "Validation": val_loss }, global_step)
