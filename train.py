@@ -6,25 +6,52 @@ from tqdm import tqdm
 from pathlib import Path
 from tokenizers import Tokenizer
 from model import MtTransformerModel
-from dataset import BilingualDataset
-from tokenizers.models import WordLevel
-from tokenizers.trainers import WordLevelTrainer
-from tokenizers.pre_tokenizers import Whitespace
+from dataset import ParallelTextDataset
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import random_split, DataLoader
+from preprocessor import AmharicPreprocessor, EnglishPreprocessor
+from tokenizers import Tokenizer, models, pre_tokenizers, decoders, trainers, processors
 
 
 
 def get_or_build_tokenizer(dataset: list[dict], lang: str) -> Tokenizer:
     tokenizer_filename = f"{TOKENIZER_BASENAME.format(lang)}"
     tokenizer_path = Path(TOKENIZER_FOLDER) / tokenizer_filename
-    all_sentences = [item[lang] for item in dataset]
     if not Path.exists(tokenizer_path):
+        preprocessor = AmharicPreprocessor(None) if lang == "am" else EnglishPreprocessor(None)
+        all_sentences = [preprocessor.preprocess(item[lang], encode=False) for item in dataset]
         Path(TOKENIZER_FOLDER).mkdir(parents=True, exist_ok=True)
-        tokenizer = Tokenizer(WordLevel(unk_token='[UNK]'))
-        tokenizer.pre_tokenizer = Whitespace()
-        trainer: WordLevelTrainer = WordLevelTrainer(special_tokens=["[UNK]", "[SOS]", "[EOS]", "[PAD]"], min_frequency=2)
+        
+        # Initialize a tokenizer
+        tokenizer = Tokenizer(models.BPE(unk_token='[UNK]'))
+        tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel()
+        
+        # Customize pre-tokenization and decoding
+        tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=True)
+        tokenizer.decoder = decoders.ByteLevel()
+        tokenizer.post_processor = processors.ByteLevel(trim_offsets=True)
+        
+        if lang == "en":
+            alphabet = pre_tokenizers.ByteLevel.alphabet()
+        elif lang == "am":
+            # Amharic chars and the arabic numerals
+            alphabet = ["ሀ", "ሁ", "ሂ", "ሃ", "ሄ", "ህ", "ሆ", "ሇ", "ለ", "ሉ", "ሊ", "ላ", "ሌ", "ል", "ሎ", "ሏ", "ሐ", "ሑ", "ሒ", "ሓ", "ሔ", "ሕ", "ሖ", "ሗ", "መ", "ሙ", "ሚ", "ማ", "ሜ", "ም", "ሞ", "ሟ", "ሠ", "ሡ", "ሢ", "ሣ", "ሤ", "ሥ", "ሦ", "ሧ", "ረ", "ሩ", "ሪ", "ራ", "ሬ", "ር", "ሮ", "ሯ", "ሰ", "ሱ", "ሲ", "ሳ", "ሴ", "ስ", "ሶ", "ሷ", "ሸ", "ሹ", "ሺ", "ሻ", "ሼ", "ሽ", "ሾ", "ሿ", "ቀ", "ቁ", "ቂ", "ቃ", "ቄ", "ቅ", "ቆ", "ቇ", "ቈ", "ቊ", "ቋ", "ቌ", "ቍ", "በ", "ቡ", "ቢ", "ባ", "ቤ", "ብ", "ቦ", "ቧ", "ቨ", "ቩ", "ቪ", "ቫ", "ቬ", "ቭ", "ቮ", "ቯ", "ተ", "ቱ", "ቲ", "ታ", "ቴ", "ት", "ቶ", "ቷ", "ቸ", "ቹ", "ቺ", "ቻ", "ቼ", "ች", "ቾ", "ቿ", "ኀ", "ኁ", "ኂ", "ኃ", "ኄ", "ኅ", "ኆ", "ኇ", "ኈ", "ኊ", "ኋ", "ኌ", "ኍ", "ነ", "ኑ", "ኒ", "ና", "ኔ", "ን", "ኖ", "ኗ", "ኘ", "ኙ", "ኚ", "ኛ", "ኜ", "ኝ", "ኞ", "ኟ", "አ", "ኡ", "ኢ", "ኣ", "ኤ", "እ", "ኦ", "ኧ", "ከ", "ኩ", "ኪ", "ካ", "ኬ", "ክ", "ኮ", "ኯ", "ኰ", "ኲ", "ኳ", "ኴ", "ኵ", "ኸ", "ኹ", "ኺ", "ኻ", "ኼ", "ኽ", "ኾ", "ወ", "ዉ", "ዊ", "ዋ", "ዌ", "ው", "ዎ", "ዐ", "ዑ", "ዒ", "ዓ", "ዔ", "ዕ", "ዖ", "ዘ", "ዙ", "ዚ", "ዛ", "ዜ", "ዝ", "ዞ", "ዟ", "ዠ", "ዡ", "ዢ", "ዣ", "ዤ", "ዥ", "ዦ", "ዧ", "የ", "ዩ", "ዪ", "ያ", "ዬ", "ይ", "ዮ", "ደ", "ዱ", "ዲ", "ዳ", "ዴ", "ድ", "ዶ", "ዷ", "ጀ", "ጁ", "ጂ", "ጃ", "ጄ", "ጅ", "ጆ", "ጇ", "ገ", "ጉ", "ጊ", "ጋ", "ጌ", "ግ", "ጎ", "ጏ", "ጠ", "ጡ", "ጢ", "ጣ", "ጤ", "ጥ", "ጦ", "ጧ", "ጨ", "ጩ", "ጪ", "ጫ", "ጬ", "ጭ", "ጮ", "ጯ", "ጰ", "ጱ", "ጲ", "ጳ", "ጴ", "ጵ", "ጶ", "ጷ", "ጸ", "ጹ", "ጺ", "ጻ", "ጼ", "ጽ", "ጾ", "ጿ", "ፀ", "ፁ", "ፂ", "ፃ", "ፄ", "ፅ", "ፆ", "ፇ", "ፈ", "ፉ", "ፊ", "ፋ", "ፌ", "ፍ", "ፎ", "ፏ", "ፐ", "ፑ", "ፒ", "ፓ", "ፔ", "ፕ", "ፖ", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+            
+            # Add punctuations and special symbols
+            alphabet += ["!", "@", "#", "$", "%", "^", "«", "»", "&", "?", "*", "(", ")", "…", "[", "]", "{", "}", ";", "“", "”", "›", "’", "‘", '"', "'", ":", ",", ".", "‹", "/", "<", ">", "\\", "\\", "|", "`", "´", "~", "-", "=", "+", "፡", "።", "፤", ";", "፦", "፥", "፧", "፨", "፠", "፣"]
+        else:
+            raise UnicodeError("Unrecognized language")
+           
+        # Train on dataset
+        trainer = trainers.BpeTrainer(
+            vocab_size=15000, 
+            special_tokens=["[UNK]", "[SOS]", "[EOS]", "[PAD]"], 
+            initial_alphabet=alphabet,
+            min_frequency=2,
+            show_progress=True
+        )        
         tokenizer.train_from_iterator(all_sentences, trainer=trainer)
+        
         tokenizer.save(str(tokenizer_path))
     else:
         tokenizer = Tokenizer.from_file(str(tokenizer_path))
@@ -33,8 +60,8 @@ def get_or_build_tokenizer(dataset: list[dict], lang: str) -> Tokenizer:
     
     return tokenizer
 
-def get_dataset() -> tuple[BilingualDataset, BilingualDataset, BilingualDataset]:
-    with open("data/languages.json", 'r', encoding='utf-8') as data:
+def get_dataset() -> tuple[ParallelTextDataset, ParallelTextDataset, ParallelTextDataset]:
+    with open(DATASET_PATH, 'r', encoding='utf-8') as data:
         dataset = json.load(data)
     
     train_size = int(0.8 * len(dataset))
@@ -46,18 +73,10 @@ def get_dataset() -> tuple[BilingualDataset, BilingualDataset, BilingualDataset]
     
     src_tokenizer = get_or_build_tokenizer(dataset, SRC_LANG)
     tgt_tokenizer = get_or_build_tokenizer(dataset, TGT_LANG)
-    
-    train_dataset = BilingualDataset(train_raw, src_tokenizer, tgt_tokenizer)
-    val_dataset = BilingualDataset(val_raw, src_tokenizer, tgt_tokenizer)
-    test_dataset = BilingualDataset(test_raw, src_tokenizer, tgt_tokenizer)
-    
-    max_src_len = max_tgt_len = 0
-    for data in dataset:
-        max_src_len = max(max_src_len, len(train_dataset.encode_src(data[SRC_LANG])))
-        max_tgt_len = max(max_tgt_len, len(train_dataset.encode_tgt(data[TGT_LANG])))
-        
-    print(f"Max length of source sentence: {max_src_len}")
-    print(f"Max length of target sentence: {max_tgt_len}")
+
+    train_dataset = ParallelTextDataset(train_raw, src_tokenizer, tgt_tokenizer)
+    val_dataset = ParallelTextDataset(val_raw, src_tokenizer, tgt_tokenizer)
+    test_dataset = ParallelTextDataset(test_raw, src_tokenizer, tgt_tokenizer)
     
     return train_dataset, val_dataset, test_dataset
     
@@ -65,14 +84,7 @@ def get_dataset() -> tuple[BilingualDataset, BilingualDataset, BilingualDataset]
 def get_model(src_vocab_size: int, tgt_vocab_size):
     return MtTransformerModel.build(
         src_vocab_size=src_vocab_size, 
-        tgt_vocab_size=tgt_vocab_size, 
-        src_seq_len=SEQ_LEN, 
-        tgt_seq_len=SEQ_LEN, 
-        d_model=D_MODEL,
-        n_blocks=N_BLOCKS,
-        heads=HEADS,
-        dropout=DROPOUT,
-        dff=DFF
+        tgt_vocab_size=tgt_vocab_size
     )
 
 @torch.no_grad()
@@ -112,12 +124,12 @@ def validate(model: MtTransformerModel, val_batch_iterator: DataLoader, loss_fun
     return sum(val_losses) / len(val_losses)
 
     
-def train(model: MtTransformerModel, train_dataset: BilingualDataset, val_dataset: BilingualDataset) -> None:   
+def train(model: MtTransformerModel, train_dataset: ParallelTextDataset, val_dataset: ParallelTextDataset) -> None:   
     # Configure Tensorboard
     writer = SummaryWriter(TB_LOG_DIR)
     
     # Create the optimizer
-    optimizer = torch.optim.Adam(model.parameters(), lr=LR, eps=1e-09)
+    optimizer = torch.optim.Adam(model.parameters(), lr=INIT_LR, eps=1e-09)
     
     initial_epoch = 0
     global_step = 0
@@ -171,7 +183,7 @@ def train(model: MtTransformerModel, train_dataset: BilingualDataset, val_datase
                 label.view(-1)                                                          # (batches, seq_len) --> (batches * seq_len, )
             )
             
-            if global_step % 10 == 0:
+            if global_step % 200 == 0:
                 # Evaluate the model on the validation dataset(aka unseen data)
                 val_loss = validate(model, val_batch_iterator, loss_func)
                 
@@ -207,7 +219,7 @@ def train(model: MtTransformerModel, train_dataset: BilingualDataset, val_datase
             prev_loss = current_avg_train_loss
             
             # Save the model at the end of every epoch
-            model_filename = get_weights_file_path(f"epoch-{epoch:02d}_avgTrainLoss-{current_avg_train_loss:6.3f}_avgValLoss-{current_avg_val_loss:6.3f}_batch-{BATCH_SIZE}_lr-{LR:.0e}")
+            model_filename = get_weights_file_path(f"epoch-{epoch:02d}_avgTrainLoss-{current_avg_train_loss:6.3f}_avgValLoss-{current_avg_val_loss:6.3f}_batch-{BATCH_SIZE}_init_lr-{INIT_LR:.0e}")
             torch.save({
                 "epoch": epoch,
                 "model_state_dict": model.state_dict(),

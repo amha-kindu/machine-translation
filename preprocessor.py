@@ -1,21 +1,34 @@
 import re
+import nltk
+from tokenizers import Tokenizer
+from nltk.corpus import stopwords
 from abc import ABC, abstractmethod
+from nltk.tokenize import word_tokenize
+from nltk.stem import WordNetLemmatizer
 
 
 class PreprocessingPipeline(ABC):   
-    def __init__(self) -> None:
+    def __init__(self, tokenizer: Tokenizer) -> None:
         super().__init__()
+        self.tokenizer = tokenizer
+        
+    def tokenize(self, text):
+        """
+        Tokenize the input text into words.
+        """
+        words = word_tokenize(text)
+        return words
     
     @abstractmethod
-    def preprocess(self, text: str) -> str:
+    def preprocess(self, text: str, encode=True) -> str:
         pass
 
     
 class AmharicPreprocessor(PreprocessingPipeline):
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, tokenizer: Tokenizer) -> None:
+        super().__init__(tokenizer)
     
-    def preprocess(self, text: str) -> str:
+    def preprocess(self, text: str, encode=True) -> str:
         # Character level mismatch
         text = self.normalize_char_level_missmatch(text)
         
@@ -23,13 +36,18 @@ class AmharicPreprocessor(PreprocessingPipeline):
         text = self.normalize_abbreviations(text)
         
         # Remove punctuations and special characters
-        text = self.remove_punc_and_special_chars(text)
+        # text = self.remove_punc_and_special_chars(text)
         
         # Remove non-amharic chars and arabic numbers
         text = self.remove_ascii_and_numbers(text)
         
-        return text
-    
+        if encode:
+            return self.tokenizer.encode(
+                text,
+            ).ids
+        else:
+            return text
+            
     # Remove abbreviations
     def normalize_abbreviations(self, text: str) -> str:
         common_amharic_abbreviations = {
@@ -147,14 +165,17 @@ class AmharicPreprocessor(PreprocessingPipeline):
     #remove all ascii characters and Arabic and Amharic numbers
     def remove_ascii_and_numbers(self, text: str) -> str:
         rm_num_and_ascii=re.sub('[A-Za-z0-9]','',text)
-        return re.sub('[\'\u1369-\u137C\']+','',rm_num_and_ascii)
+        return re.sub('[^\u1200-\u137F\s]+','',rm_num_and_ascii)
     
 
 class EnglishPreprocessor(PreprocessingPipeline):
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, tokenizer: Tokenizer) -> None:
+        super().__init__(tokenizer)
+        self.stop_words = set(stopwords.words('english'))
+        self.lemmatizer = WordNetLemmatizer()
     
-    def preprocess(self, text: str) -> str:
+    def preprocess(self, text: str, encode=True) -> str:
+        
         # Lowercase the text
         text = text.lower()
         
@@ -165,9 +186,37 @@ class EnglishPreprocessor(PreprocessingPipeline):
         text = self.remove_punc_and_special_chars(text)
         
         # Remove non-English chars and numbers
-        text = self.remove_non_english_and_numbers(text)        
+        text = self.remove_non_english_and_numbers(text)       
         
-        return text
+        # # Pre-tokenization
+        words = self.tokenize(text)
+
+        # # Remove stopwords
+        words = self.remove_stopwords(words)
+
+        # # Lemmatization
+        words = self.lemmatize(words) 
+        
+        if encode:
+            return self.tokenizer.encode(
+                text
+            ).ids
+        else:
+            return " ".join(words)
+    
+    def remove_stopwords(self, words):
+        """
+        Remove common English stopwords from the list of words.
+        """
+        filtered_words = [word for word in words if word not in self.stop_words]
+        return filtered_words
+
+    def lemmatize(self, words):
+        """
+        Lemmatize words to their base form.
+        """
+        lemmatized_words = [self.lemmatizer.lemmatize(word) for word in words]
+        return lemmatized_words
     
     def normalize_english_abbreviations(self, text: str) -> str:
         common_english_abbreviations = {
@@ -221,6 +270,6 @@ class EnglishPreprocessor(PreprocessingPipeline):
         return text
     
     #replacing any existance of special character or punctuation to null  
-    def remove_punc_and_special_chars(self, text: str) -> str: # puct in amh =፡።፤;፦፧፨፠፣ 
-        normalized_text = re.sub('[\!\@\#\$\%\^\&\*\(\)\…\[\]\{\}\;\“\”\›\’\‘\"\'\:\,\.\‹\/\<\>\?\\\\|\`\´\~\-\=\+\፡\;]', '', text) 
+    def remove_punc_and_special_chars(self, text: str) -> str:
+        normalized_text = re.sub('[\!\@\#\$\%\^\&\*\(\)\…\[\]\{\}\;\“\”\›\’\‘\"\'\:\,\.\‹\/\<\>\?\\\\|\`\´\~\-\=\+\፡\;]', ' ', text) 
         return normalized_text

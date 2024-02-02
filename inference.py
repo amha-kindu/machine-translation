@@ -3,7 +3,7 @@ import random
 from config import *
 from enum import Enum
 from tokenizers import Tokenizer
-from dataset import BilingualDataset
+from dataset import ParallelTextDataset
 from model import MtTransformerModel
 
 
@@ -26,7 +26,7 @@ class MtInferenceEngine:
         self.model.eval()
         
     def translate(self, source_text: str, seq_len: int, strategy=SamplingStrategy.GREEDY) -> tuple[str, str]:
-        dataset = BilingualDataset(
+        dataset = ParallelTextDataset(
             dataset=[{"en": source_text, "am":"" }], 
             src_tokenizer=self.src_tokenizer,
             tgt_tokenizer=self.tgt_tokenizer

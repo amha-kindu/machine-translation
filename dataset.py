@@ -1,11 +1,12 @@
 import torch
+from augmentation import ParallelTextAugmenter
 from config import *
 from tokenizers import Tokenizer
 from torch.utils.data import Dataset, DataLoader
 
 from preprocessor import AmharicPreprocessor, EnglishPreprocessor
 
-class BilingualDataset(Dataset):
+class ParallelTextDataset(Dataset):
     def __init__(self, dataset: list[dict], src_tokenizer: Tokenizer, tgt_tokenizer: Tokenizer) -> None:
         super().__init__()
         self.dataset = dataset
@@ -13,8 +14,9 @@ class BilingualDataset(Dataset):
         self.src_tokenizer = src_tokenizer
         self.tgt_tokenizer = tgt_tokenizer
         
-        self.src_preprocessor = EnglishPreprocessor()
-        self.tgt_preprocessor = AmharicPreprocessor()
+        self.src_preprocessor = EnglishPreprocessor(src_tokenizer)
+        self.tgt_preprocessor = AmharicPreprocessor(tgt_tokenizer)
+        self.augmenter = ParallelTextAugmenter(src_lang='en', tgt_lang='am')
         
         self.sos_token = torch.tensor([self.src_tokenizer.token_to_id("[SOS]")], dtype=torch.int64)  # (1,)
         self.eos_token = torch.tensor([self.src_tokenizer.token_to_id("[EOS]")], dtype=torch.int64)  # (1,)
@@ -25,17 +27,7 @@ class BilingualDataset(Dataset):
     
     def batch_iterator(self, batch_size: int) -> DataLoader:
         return DataLoader(self, batch_size, shuffle=True)
-    
-    def encode_src(self, text: str) -> list[int]:
-        return self.src_tokenizer.encode(
-            self.src_preprocessor.preprocess(text)
-        ).ids
-        
-    def encode_tgt(self, text: str) -> list[int]:
-        return self.tgt_tokenizer.encode(
-            self.tgt_preprocessor.preprocess(text)
-        ).ids
-    
+
     @staticmethod
     def lookback_mask(size: int) -> torch.Tensor:
         # Lower triangular matrix
@@ -52,9 +44,11 @@ class BilingualDataset(Dataset):
         src_text = src_tgt_pair[SRC_LANG]
         tgt_text = src_tgt_pair[TGT_LANG]
         
-        src_token_ids = self.encode_src(src_text)
-        tgt_token_ids = self.encode_tgt(tgt_text)
+        # src_text, tgt_text = self.augmenter.augment(src_text, tgt_text)
         
+        src_token_ids = self.src_preprocessor.preprocess(src_text)
+        tgt_token_ids = self.tgt_preprocessor.preprocess(tgt_text)
+                
         src_padding = SEQ_LEN - len(src_token_ids) - 2
         tgt_padding = SEQ_LEN - len(tgt_token_ids) - 1
         
