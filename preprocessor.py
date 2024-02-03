@@ -36,7 +36,7 @@ class AmharicPreprocessor(PreprocessingPipeline):
         text = self.normalize_abbreviations(text)
         
         # Remove punctuations and special characters
-        # text = self.remove_punc_and_special_chars(text)
+        text = self.remove_punc_and_special_chars(text)
         
         # Remove non-amharic chars and arabic numbers
         text = self.remove_ascii_and_numbers(text)
@@ -189,20 +189,20 @@ class EnglishPreprocessor(PreprocessingPipeline):
         text = self.remove_non_english_and_numbers(text)       
         
         # # Pre-tokenization
-        words = self.tokenize(text)
+        # words = self.tokenize(text)
 
         # # Remove stopwords
-        words = self.remove_stopwords(words)
+        # words = self.remove_stopwords(words)
 
         # # Lemmatization
-        words = self.lemmatize(words) 
+        # words = self.lemmatize(words) 
         
         if encode:
             return self.tokenizer.encode(
                 text
             ).ids
         else:
-            return " ".join(words)
+            return text
     
     def remove_stopwords(self, words):
         """

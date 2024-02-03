@@ -9,52 +9,14 @@ from model import MtTransformerModel
 from dataset import ParallelTextDataset
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import random_split, DataLoader
-from preprocessor import AmharicPreprocessor, EnglishPreprocessor
-from tokenizers import Tokenizer, models, pre_tokenizers, decoders, trainers, processors
 
 
 
-def get_or_build_tokenizer(dataset: list[dict], lang: str) -> Tokenizer:
-    tokenizer_filename = f"{TOKENIZER_BASENAME.format(lang)}"
+def get_tokenizer(lang: str, basename: str=TOKENIZER_BASENAME) -> Tokenizer:
+    tokenizer_filename = f"{basename.format(lang)}"
     tokenizer_path = Path(TOKENIZER_FOLDER) / tokenizer_filename
-    if not Path.exists(tokenizer_path):
-        preprocessor = AmharicPreprocessor(None) if lang == "am" else EnglishPreprocessor(None)
-        all_sentences = [preprocessor.preprocess(item[lang], encode=False) for item in dataset]
-        Path(TOKENIZER_FOLDER).mkdir(parents=True, exist_ok=True)
-        
-        # Initialize a tokenizer
-        tokenizer = Tokenizer(models.BPE(unk_token='[UNK]'))
-        tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel()
-        
-        # Customize pre-tokenization and decoding
-        tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=True)
-        tokenizer.decoder = decoders.ByteLevel()
-        tokenizer.post_processor = processors.ByteLevel(trim_offsets=True)
-        
-        if lang == "en":
-            alphabet = pre_tokenizers.ByteLevel.alphabet()
-        elif lang == "am":
-            # Amharic chars and the arabic numerals
-            alphabet = ["ሀ", "ሁ", "ሂ", "ሃ", "ሄ", "ህ", "ሆ", "ሇ", "ለ", "ሉ", "ሊ", "ላ", "ሌ", "ል", "ሎ", "ሏ", "ሐ", "ሑ", "ሒ", "ሓ", "ሔ", "ሕ", "ሖ", "ሗ", "መ", "ሙ", "ሚ", "ማ", "ሜ", "ም", "ሞ", "ሟ", "ሠ", "ሡ", "ሢ", "ሣ", "ሤ", "ሥ", "ሦ", "ሧ", "ረ", "ሩ", "ሪ", "ራ", "ሬ", "ር", "ሮ", "ሯ", "ሰ", "ሱ", "ሲ", "ሳ", "ሴ", "ስ", "ሶ", "ሷ", "ሸ", "ሹ", "ሺ", "ሻ", "ሼ", "ሽ", "ሾ", "ሿ", "ቀ", "ቁ", "ቂ", "ቃ", "ቄ", "ቅ", "ቆ", "ቇ", "ቈ", "ቊ", "ቋ", "ቌ", "ቍ", "በ", "ቡ", "ቢ", "ባ", "ቤ", "ብ", "ቦ", "ቧ", "ቨ", "ቩ", "ቪ", "ቫ", "ቬ", "ቭ", "ቮ", "ቯ", "ተ", "ቱ", "ቲ", "ታ", "ቴ", "ት", "ቶ", "ቷ", "ቸ", "ቹ", "ቺ", "ቻ", "ቼ", "ች", "ቾ", "ቿ", "ኀ", "ኁ", "ኂ", "ኃ", "ኄ", "ኅ", "ኆ", "ኇ", "ኈ", "ኊ", "ኋ", "ኌ", "ኍ", "ነ", "ኑ", "ኒ", "ና", "ኔ", "ን", "ኖ", "ኗ", "ኘ", "ኙ", "ኚ", "ኛ", "ኜ", "ኝ", "ኞ", "ኟ", "አ", "ኡ", "ኢ", "ኣ", "ኤ", "እ", "ኦ", "ኧ", "ከ", "ኩ", "ኪ", "ካ", "ኬ", "ክ", "ኮ", "ኯ", "ኰ", "ኲ", "ኳ", "ኴ", "ኵ", "ኸ", "ኹ", "ኺ", "ኻ", "ኼ", "ኽ", "ኾ", "ወ", "ዉ", "ዊ", "ዋ", "ዌ", "ው", "ዎ", "ዐ", "ዑ", "ዒ", "ዓ", "ዔ", "ዕ", "ዖ", "ዘ", "ዙ", "ዚ", "ዛ", "ዜ", "ዝ", "ዞ", "ዟ", "ዠ", "ዡ", "ዢ", "ዣ", "ዤ", "ዥ", "ዦ", "ዧ", "የ", "ዩ", "ዪ", "ያ", "ዬ", "ይ", "ዮ", "ደ", "ዱ", "ዲ", "ዳ", "ዴ", "ድ", "ዶ", "ዷ", "ጀ", "ጁ", "ጂ", "ጃ", "ጄ", "ጅ", "ጆ", "ጇ", "ገ", "ጉ", "ጊ", "ጋ", "ጌ", "ግ", "ጎ", "ጏ", "ጠ", "ጡ", "ጢ", "ጣ", "ጤ", "ጥ", "ጦ", "ጧ", "ጨ", "ጩ", "ጪ", "ጫ", "ጬ", "ጭ", "ጮ", "ጯ", "ጰ", "ጱ", "ጲ", "ጳ", "ጴ", "ጵ", "ጶ", "ጷ", "ጸ", "ጹ", "ጺ", "ጻ", "ጼ", "ጽ", "ጾ", "ጿ", "ፀ", "ፁ", "ፂ", "ፃ", "ፄ", "ፅ", "ፆ", "ፇ", "ፈ", "ፉ", "ፊ", "ፋ", "ፌ", "ፍ", "ፎ", "ፏ", "ፐ", "ፑ", "ፒ", "ፓ", "ፔ", "ፕ", "ፖ", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
-            
-            # Add punctuations and special symbols
-            alphabet += ["!", "@", "#", "$", "%", "^", "«", "»", "&", "?", "*", "(", ")", "…", "[", "]", "{", "}", ";", "“", "”", "›", "’", "‘", '"', "'", ":", ",", ".", "‹", "/", "<", ">", "\\", "\\", "|", "`", "´", "~", "-", "=", "+", "፡", "።", "፤", ";", "፦", "፥", "፧", "፨", "፠", "፣"]
-        else:
-            raise UnicodeError("Unrecognized language")
-           
-        # Train on dataset
-        trainer = trainers.BpeTrainer(
-            vocab_size=15000, 
-            special_tokens=["[UNK]", "[SOS]", "[EOS]", "[PAD]"], 
-            initial_alphabet=alphabet,
-            min_frequency=2,
-            show_progress=True
-        )        
-        tokenizer.train_from_iterator(all_sentences, trainer=trainer)
-        
-        tokenizer.save(str(tokenizer_path))
-    else:
-        tokenizer = Tokenizer.from_file(str(tokenizer_path))
+
+    tokenizer: Tokenizer = Tokenizer.from_file(str(tokenizer_path))
         
     tokenizer.enable_truncation(max_length=SEQ_LEN - 2)
     
@@ -71,8 +33,8 @@ def get_dataset() -> tuple[ParallelTextDataset, ParallelTextDataset, ParallelTex
     train_test_raw, val_raw = random_split(dataset, (train_size+test_size, val_size))
     train_raw, test_raw = random_split(train_test_raw, (train_size, test_size))
     
-    src_tokenizer = get_or_build_tokenizer(dataset, SRC_LANG)
-    tgt_tokenizer = get_or_build_tokenizer(dataset, TGT_LANG)
+    src_tokenizer = get_tokenizer(SRC_LANG)
+    tgt_tokenizer = get_tokenizer(TGT_LANG)
 
     train_dataset = ParallelTextDataset(train_raw, src_tokenizer, tgt_tokenizer)
     val_dataset = ParallelTextDataset(val_raw, src_tokenizer, tgt_tokenizer)

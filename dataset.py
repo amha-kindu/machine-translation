@@ -1,7 +1,7 @@
 import torch
-from augmentation import ParallelTextAugmenter
 from config import *
 from tokenizers import Tokenizer
+from augmentation import ParallelTextAugmenter
 from torch.utils.data import Dataset, DataLoader
 
 from preprocessor import AmharicPreprocessor, EnglishPreprocessor
