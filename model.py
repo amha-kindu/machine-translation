@@ -298,8 +298,8 @@ class MtTransformerModel(nn.Module):
             )
             
         # Create the encoder and the decoder
-        encoder = Encoder(encoder_blocks)
-        decoder = Decoder(decoder_blocks)
+        encoder = Encoder(nn.ModuleList(encoder_blocks))
+        decoder = Decoder(nn.ModuleList(decoder_blocks))
         
         # Create the projection layer
         projection_layer = ProjectionLayer(tgt_vocab_size)

@@ -1,8 +1,4 @@
-import nltk, torch, random
-
-nltk.download('punkt')
-nltk.download('stopwords')
-nltk.download('wordnet')
+import torch, random
 
 torch.manual_seed(3000)
 if torch.cuda.is_available():
@@ -14,7 +10,7 @@ random.seed(3000)
 
 BATCH_SIZE = 64
 EPOCHS = 100
-INIT_LR = 1e-04
+INIT_LR = 2e-04
 SEQ_LEN = 52
 D_MODEL = 512
 N_BLOCKS = 6

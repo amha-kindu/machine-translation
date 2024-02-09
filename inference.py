@@ -11,11 +11,6 @@ from train import get_model, get_tokenizer
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QLineEdit, QPushButton, QGridLayout
 
 
-class SamplingStrategy(Enum):
-    GREEDY=0,
-    TOP_K_RANDOM=1,
-    NUCLEUS=2
-
 class MtInferenceEngine:
     
     def __init__(self, model: MtTransformerModel, src_tokenizer: Tokenizer, tgt_tokenizer: Tokenizer, top_k: int= 5, nucleus_threshold=10) -> None:
@@ -29,7 +24,7 @@ class MtInferenceEngine:
         self.pad_token = torch.tensor([self.src_tokenizer.token_to_id("[PAD]")], dtype=torch.int64, device=DEVICE)  # (1,)
         self.model.eval()
         
-    def translate(self, source_text: str, max_len: int, strategy=SamplingStrategy.GREEDY) -> tuple[str, str]:
+    def translate(self, source_text: str, max_len: int) -> tuple[str, str]:
         dataset = ParallelTextDataset(
             dataset=[{"en": source_text, "am":"" }], 
             src_tokenizer=self.src_tokenizer,
@@ -42,55 +37,47 @@ class MtInferenceEngine:
         encoder_mask = batch["encoder_mask"].to(DEVICE)         # (1, 1, 1, seq_len) 
         decoder_mask = batch["decoder_mask"].to(DEVICE)         # (1, 1, seq_len, seq_len) 
                         
-        return self.translate_raw(encoder_input, encoder_mask, decoder_mask, max_len, strategy)
-
+        return self.translate_raw(encoder_input, encoder_mask, decoder_mask, max_len)
+    
     @torch.no_grad()
-    def translate_raw(self, encoder_input: torch.Tensor, encoder_mask: torch.Tensor, decoder_mask: torch.Tensor, max_len: int, strategy=SamplingStrategy.GREEDY) -> str:        
-        # Reuse the encoder output to generate subsequent tokens using the decoder
-        encoder_output = self.model.encode(encoder_input, encoder_mask)
+    def translate_raw(self, encoder_input: torch.Tensor, encoder_mask: torch.Tensor, decoder_mask: torch.Tensor, max_len: int) -> str:        
+        sos_idx = self.tgt_tokenizer.token_to_id('[SOS]')
+        eos_idx = self.tgt_tokenizer.token_to_id('[EOS]')
+
+        # Precompute the encoder output and reuse it for every step
+        encoder_output = model.encode(encoder_input, encoder_mask)
         
-        # Initialize the decoder input with the start of sentence token
-        decoder_input = torch.concat([
-            self.sos_token,                                                                      # (1,)
-            torch.tensor([self.pad_token] * (SEQ_LEN - 1), dtype=torch.int64, device=DEVICE)     # (max_seq_len - 1,)
-        ]).unsqueeze(0)   
-        
-        count = 1
-                
-        # While length of the generated text is less than max_len and the 
-        # last generated token is different from eos_token
-        # keep generating the next token
-        while count < max_len and decoder_input[:, -1] != self.eos_token:
-            # Calculate the output of the decoder
-            decoder_output = self.model.decode(encoder_output, encoder_mask, decoder_input, decoder_mask)
+        # Initialize the decoder input with the sos token
+        next_token = sos_idx
+        decoder_input = torch.empty(1, 1).fill_(sos_idx).type_as(encoder_input).to(DEVICE)
+        while decoder_input.size(1) < max_len and next_token != eos_idx:
+            # Build required masking for decoder input
+            decoder_mask = ParallelTextDataset.lookback_mask(decoder_input.size(1)).type_as(encoder_mask).to(DEVICE)
+
+            # Calculate output of decoder
+            decoder_out = model.decode(encoder_output, encoder_mask, decoder_input, decoder_mask)       # (1, seq_len, d_model)
             
-            # Retrieve the current probability distribution of the tokens in the vocabulary
-            token_probab = self.model.project(decoder_output)                                   # (1, seq_len, tgt_vocab_size)
+            # Retrieve the embedded vector form of the last token
+            last_token_vec = decoder_out[:, -1]                         # (1, d_model)
             
-            # Retrieve the probability distribution over vocab_size on the `count`th  
-            # position in the second dimension(`seq_len`)
-            # (1, seq_len, tgt_vocab_size) --> (1, tgt_vocab_size)
-            next_token_prob = token_probab[:, count]                                            # (1, tgt_vocab_size)
+            # Get the model's raw output(logits)
+            last_token_logits = model.project(last_token_vec)           # (1, d_model) --> (1, tgt_vocab_size)
             
-            """
-                Retrieve the next token based on its probability and the strategy selected
-            """
-            if strategy == SamplingStrategy.GREEDY:
-                # Retrieve the token with the highest probability
-                _, next_token = torch.max(next_token_prob, dim=1)                   # value=tensor([max_prob]), indice=tensor([index{token_id}])
-            elif strategy == SamplingStrategy.TOP_K_RANDOM:
-                _, topk_indices = torch.topk(token_probab, k=self.top_k)
-                next_token = random.choice(topk_indices.squeeze().tolist())
-            else:
-                raise Exception("Unknown sampling strategy passed")
+            # Evaluate the probability distribution across the vocab_size 
+            # dimension using softmax
+            last_token_prob = torch.softmax(last_token_logits, dim=1)
             
-            # Modify to the decoder input for the next iteration
-            decoder_input[0, count] = next_token.item()
-            count += 1
-        
+            # Greedily pick the one with the highest probability
+            _, next_token = torch.max(last_token_prob, dim=1)
+            
+            # Append to the decoder input for the subsequent iterations
+            decoder_input = torch.cat([
+                decoder_input, 
+                torch.empty(1, 1).type_as(encoder_input).fill_(next_token.item()).to(DEVICE)
+            ], dim=1)
+
         # Remove the batch dimension 
         decoder_input = decoder_input.squeeze(0)                                    # torch.tensor([...]) with shape tensor.Size([max_len])
-    
         return self.tgt_tokenizer.decode(decoder_input.detach().cpu().tolist())
     
 
@@ -137,14 +124,12 @@ class TranslationApp(QWidget):
         self.output_textbox.setText(prediction)
 
 if __name__ == '__main__':
-    vocab_size = 6000
+    vocab_size = 20000
     app = QApplication(sys.argv)
-    state = torch.load("./models/tmodel_v1.pt", map_location=DEVICE)
+    state = torch.load("./models/tmodel-en-am-v1-20k.pt", map_location=DEVICE)
     
-    src_tokenizer: Tokenizer = get_tokenizer(SRC_LANG, "tokenizer-en-v3.5-6k.json")
-    tgt_tokenizer: Tokenizer = get_tokenizer(TGT_LANG, "tokenizer-am-v3.5-6k.json")
-
-    print(src_tokenizer.decode(src_tokenizer.encode("What is your name?").ids))
+    src_tokenizer: Tokenizer = get_tokenizer(SRC_LANG, "tokenizer-en-v3.5-20k.json")
+    tgt_tokenizer: Tokenizer = get_tokenizer(TGT_LANG, "tokenizer-am-v3.5-20k.json")
     
     model = get_model(vocab_size, vocab_size).to(DEVICE)
     model.load_state_dict(state["model_state_dict"])

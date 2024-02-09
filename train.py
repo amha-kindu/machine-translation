@@ -73,7 +73,7 @@ def validate(model: MtTransformerModel, val_batch_iterator: DataLoader, loss_fun
         proj_output: torch.Tensor = model.project(decoder_output)                                   # (batches, seq_len, tgt_vocab_size)
                     
         # Compute the cross entropy loss
-        loss: torch.Tensor = loss_func(
+        loss: torch.Tensor = loss_func.forward(
             proj_output.view(-1, val_dataset.tgt_tokenizer.get_vocab_size()),     # (batches, seq_len, tgt_vocab_size) --> (batches*seq_len, tgt_vocab_size)
             label.view(-1)                                                          # (batches, seq_len) --> (batches * seq_len, )
         )
@@ -112,6 +112,7 @@ def train(model: MtTransformerModel, train_dataset: ParallelTextDataset, val_dat
     val_batch_iterator = val_dataset.batch_iterator(BATCH_SIZE)
     
     prev_loss = float('inf')
+    val_loss = 0
     for epoch in range(initial_epoch, EPOCHS):
         # Wrap train_dataloader with tqdm to show a progress bar to show
         # how much of the batches have been processed on the current epoch
@@ -140,7 +141,7 @@ def train(model: MtTransformerModel, train_dataset: ParallelTextDataset, val_dat
             proj_output: torch.Tensor = model.project(decoder_output)                                   # (batches, seq_len, tgt_vocab_size)
                         
             # Compute the training loss
-            train_loss: torch.Tensor = loss_func(
+            train_loss: torch.Tensor = loss_func.forward(
                 proj_output.view(-1, train_dataset.tgt_tokenizer.get_vocab_size()),     # (batches, seq_len, tgt_vocab_size) --> (batches*seq_len, tgt_vocab_size)
                 label.view(-1)                                                          # (batches, seq_len) --> (batches * seq_len, )
             )
@@ -192,8 +193,6 @@ def train(model: MtTransformerModel, train_dataset: ParallelTextDataset, val_dat
 
 if __name__ == "__main__":
     print(f"Training started on `{DEVICE}` device")
-    
-    Path(MODEL_FOLDER).mkdir(parents=True, exist_ok=True)
     train_dataset, val_dataset, test_dataset = get_dataset()
     
     model = get_model(train_dataset.src_tokenizer.get_vocab_size(), train_dataset.tgt_tokenizer.get_vocab_size()).to(DEVICE)    

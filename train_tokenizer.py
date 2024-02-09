@@ -11,12 +11,11 @@ def train(dataset: list[dict], lang: str, vocab_size: int) -> Tokenizer:
     
     # Initialize a tokenizer
     tokenizer = Tokenizer(models.BPE(unk_token='[UNK]'))
-    tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel()
     
     # Customize pre-tokenization and decoding
-    tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=True)
+    tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(use_regex=False)
     tokenizer.decoder = decoders.ByteLevel()
-    tokenizer.post_processor = processors.ByteLevel(trim_offsets=True)
+    tokenizer.post_processor = processors.ByteLevel()
     
     if lang == "en":
         alphabet = list(filter(lambda x: x in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" ,pre_tokenizers.ByteLevel.alphabet()))
