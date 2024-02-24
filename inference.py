@@ -1,6 +1,7 @@
 import sys
+from typing import Generator
 import torch
-import random
+import time
 from config import *
 from enum import Enum
 from PyQt5.QtGui import QFont
@@ -23,8 +24,9 @@ class MtInferenceEngine:
         self.eos_token = torch.tensor([self.src_tokenizer.token_to_id("[EOS]")], dtype=torch.int64, device=DEVICE)  # (1,)
         self.pad_token = torch.tensor([self.src_tokenizer.token_to_id("[PAD]")], dtype=torch.int64, device=DEVICE)  # (1,)
         self.model.eval()
-        
-    def translate(self, source_text: str, max_len: int) -> tuple[str, str]:
+       
+    @torch.no_grad() 
+    def translate(self, source_text: str, max_len: int) -> str:
         dataset = ParallelTextDataset(
             dataset=[{"en": source_text, "am":"" }], 
             src_tokenizer=self.src_tokenizer,
@@ -37,10 +39,7 @@ class MtInferenceEngine:
         encoder_mask = batch["encoder_mask"].to(DEVICE)         # (1, 1, 1, seq_len) 
         decoder_mask = batch["decoder_mask"].to(DEVICE)         # (1, 1, seq_len, seq_len) 
                         
-        return self.translate_raw(encoder_input, encoder_mask, decoder_mask, max_len)
-    
-    @torch.no_grad()
-    def translate_raw(self, encoder_input: torch.Tensor, encoder_mask: torch.Tensor, decoder_mask: torch.Tensor, max_len: int) -> str:        
+        # yield self.translate_raw(encoder_input, encoder_mask, decoder_mask, max_len)
         sos_idx = self.tgt_tokenizer.token_to_id('[SOS]')
         eos_idx = self.tgt_tokenizer.token_to_id('[EOS]')
 
@@ -79,7 +78,7 @@ class MtInferenceEngine:
         # Remove the batch dimension 
         decoder_input = decoder_input.squeeze(0)                                    # torch.tensor([...]) with shape tensor.Size([max_len])
         return self.tgt_tokenizer.decode(decoder_input.detach().cpu().tolist())
-    
+
 
 class TranslationApp(QWidget):
     def __init__(self, inference_engine: MtInferenceEngine):
@@ -135,6 +134,8 @@ if __name__ == '__main__':
     model.load_state_dict(state["model_state_dict"])
     
     model.eval()
+    params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Initiating Inference on `{DEVICE}` device with a model that has {params} trainable parameters.")
     inference_engine = MtInferenceEngine(model, src_tokenizer, tgt_tokenizer)
     
     translation_app = TranslationApp(inference_engine)
