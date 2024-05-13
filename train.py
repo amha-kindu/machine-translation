@@ -60,22 +60,22 @@ def validate(model: MtTransformerModel, val_batch_iterator: DataLoader, loss_fun
     # Evaluate model with `num_examples` number of random examples
     for batch in val_batch_iterator:
         # Retrieve the data points from the current batch
-        encoder_input = batch["encoder_input"].to(DEVICE)       # (batches, seq_len) 
-        decoder_input = batch["decoder_input"].to(DEVICE)       # (batches, seq_len) 
-        encoder_mask = batch["encoder_mask"].to(DEVICE)         # (bathes, 1, 1, seq_len) 
-        decoder_mask = batch["decoder_mask"].to(DEVICE)         # (bathes, 1, seq_len, seq_len) 
-        label: torch.Tensor = batch['label'].to(DEVICE)         # (batches, seq_len)
+        encoder_input = batch["encoder_input"].to(DEVICE)       # (batch, seq_len) 
+        decoder_input = batch["decoder_input"].to(DEVICE)       # (batch, seq_len) 
+        encoder_mask = batch["encoder_mask"].to(DEVICE)         # (batch, 1, 1, seq_len) 
+        decoder_mask = batch["decoder_mask"].to(DEVICE)         # (batch, 1, seq_len, seq_len) 
+        label: torch.Tensor = batch['label'].to(DEVICE)         # (batch, seq_len)
         
         # Perform the forward pass according to the operations defined in 
         # the transformer model in order to build the computation graph of the model
-        encoder_output = model.encode(encoder_input, encoder_mask)                                  # (batches, seq_len, d_model)
-        decoder_output = model.decode(encoder_output, encoder_mask, decoder_input, decoder_mask)    # (batches, seq_len, d_model)
-        proj_output: torch.Tensor = model.project(decoder_output)                                   # (batches, seq_len, tgt_vocab_size)
+        encoder_output = model.encode(encoder_input, encoder_mask)                                  # (batch, seq_len, d_model)
+        decoder_output = model.decode(encoder_output, encoder_mask, decoder_input, decoder_mask)    # (batch, seq_len, d_model)
+        proj_output: torch.Tensor = model.project(decoder_output)                                   # (batch, seq_len, tgt_vocab_size)
                     
         # Compute the cross entropy loss
         loss: torch.Tensor = loss_func.forward(
-            proj_output.view(-1, val_dataset.tgt_tokenizer.get_vocab_size()),     # (batches, seq_len, tgt_vocab_size) --> (batches*seq_len, tgt_vocab_size)
-            label.view(-1)                                                          # (batches, seq_len) --> (batches * seq_len, )
+            proj_output.view(-1, val_dataset.tgt_tokenizer.get_vocab_size()),     # (batch, seq_len, tgt_vocab_size) --> (batch*seq_len, tgt_vocab_size)
+            label.view(-1)                                                          # (batch, seq_len) --> (batch * seq_len, )
         )
         
         val_losses.append(loss.item())
@@ -128,22 +128,22 @@ def train(model: MtTransformerModel, train_dataset: ParallelTextDataset, val_dat
             model.train() 
                  
             # Retrieve the data points from the current batch
-            encoder_input = batch["encoder_input"].to(DEVICE)       # (batches, seq_len) 
-            decoder_input = batch["decoder_input"].to(DEVICE)       # (batches, seq_len) 
-            encoder_mask = batch["encoder_mask"].to(DEVICE)         # (bathes, 1, 1, seq_len) 
-            decoder_mask = batch["decoder_mask"].to(DEVICE)         # (bathes, 1, seq_len, seq_len) 
-            label: torch.Tensor = batch['label'].to(DEVICE)         # (batches, seq_len)
+            encoder_input = batch["encoder_input"].to(DEVICE)       # (batch, seq_len) 
+            decoder_input = batch["decoder_input"].to(DEVICE)       # (batch, seq_len) 
+            encoder_mask = batch["encoder_mask"].to(DEVICE)         # (batch, 1, 1, seq_len) 
+            decoder_mask = batch["decoder_mask"].to(DEVICE)         # (batch, 1, seq_len, seq_len) 
+            label: torch.Tensor = batch['label'].to(DEVICE)         # (batch, seq_len)
             
             # Perform the forward pass according to the operations defined in 
             # the transformer model in order to build the computation graph of the model
-            encoder_output = model.encode(encoder_input, encoder_mask)                                  # (batches, seq_len, d_model)
-            decoder_output = model.decode(encoder_output, encoder_mask, decoder_input, decoder_mask)    # (batches, seq_len, d_model)
-            proj_output: torch.Tensor = model.project(decoder_output)                                   # (batches, seq_len, tgt_vocab_size)
+            encoder_output = model.encode(encoder_input, encoder_mask)                                  # (batch, seq_len, d_model)
+            decoder_output = model.decode(encoder_output, encoder_mask, decoder_input, decoder_mask)    # (batch, seq_len, d_model)
+            proj_output: torch.Tensor = model.project(decoder_output)                                   # (batch, seq_len, tgt_vocab_size)
                         
             # Compute the training loss
             train_loss: torch.Tensor = loss_func.forward(
-                proj_output.view(-1, train_dataset.tgt_tokenizer.get_vocab_size()),     # (batches, seq_len, tgt_vocab_size) --> (batches*seq_len, tgt_vocab_size)
-                label.view(-1)                                                          # (batches, seq_len) --> (batches * seq_len, )
+                proj_output.view(-1, train_dataset.tgt_tokenizer.get_vocab_size()),     # (batch, seq_len, tgt_vocab_size) --> (batch*seq_len, tgt_vocab_size)
+                label.view(-1)                                                          # (batch, seq_len) --> (batch * seq_len, )
             )
             
             if global_step % 200 == 0:
