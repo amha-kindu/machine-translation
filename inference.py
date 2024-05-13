@@ -1,9 +1,6 @@
 import sys
-from typing import Generator
 import torch
-import time
 from config import *
-from enum import Enum
 from PyQt5.QtGui import QFont
 from tokenizers import Tokenizer
 from model import MtTransformerModel

@@ -1,4 +1,6 @@
-import torch, random
+import torch, random, nltk
+
+nltk.download('stopwords')
 
 torch.manual_seed(3000)
 if torch.cuda.is_available():
