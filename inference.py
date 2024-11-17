@@ -128,13 +128,18 @@ if __name__ == '__main__':
     tgt_tokenizer: Tokenizer = get_tokenizer(TGT_LANG, "tokenizer-am-v3.5-20k.json")
     
     model = get_model(vocab_size, vocab_size).to(DEVICE)
-    model.load_state_dict(state["model_state_dict"])
-    
+    model.load_state_dict(state)
+
     model.eval()
     params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Initiating Inference on `{DEVICE}` device with a model that has {params} trainable parameters.")
+
+    total_params = sum(p.numel() for p in model.parameters())
+    # Multiply by 4 bytes (32 bits) per parameter and convert to MB
+    model_size_mb = total_params * 4 / (1024 ** 2)  # Divide by (1024^2) to get MB
+    print(f"Model size(MB): {model_size_mb:.2f}MB.")
     inference_engine = MtInferenceEngine(model, src_tokenizer, tgt_tokenizer)
-    
+
     translation_app = TranslationApp(inference_engine)
     translation_app.show()
     sys.exit(app.exec_())

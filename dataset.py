@@ -45,6 +45,9 @@ class ParallelTextDataset(Dataset):
                 
         src_token_ids = self.src_preprocessor.preprocess(src_text)
         tgt_token_ids = self.tgt_preprocessor.preprocess(tgt_text)
+
+        if len(src_token_ids):
+            print(f"Number of input tokens: {len(src_token_ids)}")
                 
         src_padding = SEQ_LEN - len(src_token_ids) - 2
         tgt_padding = SEQ_LEN - len(tgt_token_ids) - 1
