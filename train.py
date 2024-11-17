@@ -42,13 +42,7 @@ def get_dataset() -> tuple[ParallelTextDataset, ParallelTextDataset, ParallelTex
     
     return train_dataset, val_dataset, test_dataset
     
-
-def get_model(src_vocab_size: int, tgt_vocab_size):
-    return MtTransformerModel.build(
-        src_vocab_size=src_vocab_size, 
-        tgt_vocab_size=tgt_vocab_size
-    )
-
+    
 @torch.no_grad()
 def validate(model: MtTransformerModel, val_batch_iterator: DataLoader, loss_func: nn.CrossEntropyLoss):    
     """

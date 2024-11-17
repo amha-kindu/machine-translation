@@ -5,7 +5,7 @@ from PyQt5.QtGui import QFont
 from tokenizers import Tokenizer
 from model import MtTransformerModel
 from dataset import ParallelTextDataset
-from train import get_model, get_tokenizer
+from train import get_tokenizer
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QLineEdit, QPushButton, QGridLayout
 
 
@@ -122,22 +122,19 @@ class TranslationApp(QWidget):
 if __name__ == '__main__':
     vocab_size = 20000
     app = QApplication(sys.argv)
+
     state = torch.load("./models/tmodel-en-am-v1-20k.pt", map_location=DEVICE)
+    model = MtTransformerModel.build(vocab_size, vocab_size, state).to(DEVICE)
+
+    model.eval()
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"Device: {DEVICE}")
+    print(f"Total Parameters: {total_params}")
+    print(f"Trainable Parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
+    print(f"Model Size(MB): {total_params * 4 / (1024 ** 2):.2f}MB")
     
     src_tokenizer: Tokenizer = get_tokenizer(SRC_LANG, "tokenizer-en-v3.5-20k.json")
     tgt_tokenizer: Tokenizer = get_tokenizer(TGT_LANG, "tokenizer-am-v3.5-20k.json")
-    
-    model = get_model(vocab_size, vocab_size).to(DEVICE)
-    model.load_state_dict(state)
-
-    model.eval()
-    params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Initiating Inference on `{DEVICE}` device with a model that has {params} trainable parameters.")
-
-    total_params = sum(p.numel() for p in model.parameters())
-    # Multiply by 4 bytes (32 bits) per parameter and convert to MB
-    model_size_mb = total_params * 4 / (1024 ** 2)  # Divide by (1024^2) to get MB
-    print(f"Model size(MB): {model_size_mb:.2f}MB.")
     inference_engine = MtInferenceEngine(model, src_tokenizer, tgt_tokenizer)
 
     translation_app = TranslationApp(inference_engine)

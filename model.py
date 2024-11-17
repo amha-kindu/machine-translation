@@ -228,7 +228,8 @@ class MtTransformerModel(nn.Module):
     @staticmethod
     def build(
         src_vocab_size: int,
-        tgt_vocab_size: int
+        tgt_vocab_size: int,
+        state: dict = None
     ):
         # Create the embedding layers
         src_embed = WordEmbedding(src_vocab_size)
@@ -273,5 +274,8 @@ class MtTransformerModel(nn.Module):
         for p in transformer.parameters():
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
-                
+
+        if state:
+            transformer.load_state_dict(state)
+
         return transformer
